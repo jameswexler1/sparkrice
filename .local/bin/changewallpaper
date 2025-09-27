@@ -1,0 +1,20 @@
+
+#!/bin/sh
+# alternate-wallpaper.sh
+# Alternates between two predetermined wallpapers.
+
+WP1="$HOME/Pictures/Wallpaper/foto.jpg"
+WP2="$HOME/Pictures/Wallpaper/Isabella.png"
+STATE_FILE="$HOME/.cache/wall_state"
+
+# Ensure state file exists
+[ -f "$STATE_FILE" ] || echo 1 > "$STATE_FILE"
+
+# Alternate
+if [ "$(cat "$STATE_FILE")" = "1" ]; then
+    setbg "$WP2"
+    echo 2 > "$STATE_FILE"
+else
+    setbg "$WP1"
+    echo 1 > "$STATE_FILE"
+fi

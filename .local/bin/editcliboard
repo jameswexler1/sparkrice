@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Create a temporary file
+tmpfile=$(mktemp /tmp/clipedit.XXXXXX.txt)
+
+# Get clipboard contents (X11 clipboard)
+xclip -selection clipboard -o > "$tmpfile"
+
+# Launch terminal with Neovim editing the clipboard
+st -e nvim "$tmpfile"
+
+# After nvim closes, copy edited contents back to clipboard
+xclip -selection clipboard -i "$tmpfile"
+
+# Clean up
+rm "$tmpfile"

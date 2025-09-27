@@ -1,0 +1,163 @@
+#!/bin/bash
+# Function to escape LaTeX special characters
+escape_latex() {
+    sed 's/\\\\/__LB__/g; s/\\/\\textbackslash{}/g; s/__LB__/\\\\/g; s/&/\\&/g; s/%/\\%/g; s/\$/\\$/g; s/#/\\#/g; s/{/\\{/g; s/}/\\}/g; s/~/\\~/g; s/\^/\\^/g; s/_/\\_/g; s/"/``/g; s/|/\\textbar{}/g' <<< "$1"
+}
+# Prompt for language
+read -p "Enter the language for Babel (e.g., portuguese, english): " lang
+# Start building the LaTeX content with additional packages
+latex_header='\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage['"$lang"']{babel}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{multicol}
+\geometry{margin=1in}
+\setlength{\columnsep}{1cm}
+% Formatação do título da receita
+\newcommand{\recipetitle}[1]{
+    \begin{center}
+        {\Huge \textbf{#1}}
+        \vspace{0.5cm}
+    \end{center}
+}
+% Formatação das seções
+\newcommand{\sectionheader}[1]{
+    \vspace{0.3cm}
+    {\large \textbf{#1}}
+    \vspace{0.1cm}
+    \hrule
+    \vspace{0.5cm}
+}
+% Formatação de ingredientes
+\newcommand{\ingredient}[2]{#1 & #2 \\}
+\begin{document}
+'
+latex_footer='\end{document}'
+# Prompt for recipe title
+read -p "Enter the recipe title: " title
+title=$(escape_latex "$title")
+latex_content="$latex_header
+\recipetitle{$title}
+\par
+"
+# Function to add an ingredients section
+add_ingredients_section() {
+    read -p "Enter the section name: " section_name
+    section_name=$(escape_latex "$section_name")
+    latex_content+="\sectionheader{$section_name}
+\begin{tabular}{@{}ll}
+"
+    echo "Enter ingredients one by one. Enter an empty quantity to finish."
+    while true; do
+        read -p "Quantity: " qty
+        if [ -z "$qty" ]; then
+            break
+        fi
+        read -p "Description: " desc
+        qty=$(escape_latex "$qty")
+        desc=$(escape_latex "$desc")
+        latex_content+="\ingredient{$qty}{$desc}
+"
+    done
+    latex_content+="\end{tabular}\par
+\vspace{0.5cm}
+"
+}
+# Function to add a preparation section (enumerate)
+add_preparation_section() {
+    read -p "Enter the section name: " section_name
+    section_name=$(escape_latex "$section_name")
+    latex_content+="\sectionheader{$section_name}
+\begin{enumerate}
+"
+    echo "Enter steps one by one. Enter an empty line to finish. (Use \\ for line breaks if needed.)"
+    step_num=1
+    while true; do
+        read -p "$step_num. " step
+        if [ -z "$step" ]; then
+            break
+        fi
+        step=$(escape_latex "$step")
+        latex_content+=" \item $step
+"
+        ((step_num++))
+    done
+    latex_content+="\end{enumerate}\par
+\vspace{0.5cm}
+"
+}
+# Function to add a notes section (itemize, with optional sub-itemize)
+add_notes_section() {
+    read -p "Enter the section name: " section_name
+    section_name=$(escape_latex "$section_name")
+    latex_content+="\sectionheader{$section_name}
+\begin{itemize}
+"
+    inner_open=false
+    echo "Enter notes one by one. For sub-bullets, start with '-- '. Enter an empty line to finish. (Use \\ for line breaks.)"
+    while true; do
+        read -p "> " note
+        if [ -z "$note" ]; then
+            break
+        fi
+        note=$(escape_latex "$note")
+        if [[ $note == --* ]]; then
+            note="${note#-- }"
+            if ! $inner_open; then
+                latex_content+=" \begin{itemize}
+"
+                inner_open=true
+            fi
+            latex_content+="   \item $note
+"
+        else
+            if $inner_open; then
+                latex_content+=" \end{itemize}
+"
+                inner_open=false
+            fi
+            latex_content+=" \item $note
+"
+        fi
+    done
+    if $inner_open; then
+        latex_content+=" \end{itemize}
+"
+    fi
+    latex_content+="\end{itemize}\par
+\vspace{0.5cm}
+"
+}
+# Main loop for adding sections
+while true; do
+    echo "Add a section: 1) Ingredients, 2) Preparation, 3) Notes/Observations, 4) Done"
+    read -p "Choice: " choice
+    case $choice in
+        1) add_ingredients_section ;;
+        2) add_preparation_section ;;
+        3) add_notes_section ;;
+        4) break ;;
+        *) echo "Invalid choice." ;;
+    esac
+done
+# Finalize and write to file in the specified directory
+output_dir="$HOME/Documents/Recipes"
+mkdir -p "$output_dir"  # Create the directory if it doesn't exist
+base_name="${title// /_}"
+filename="$output_dir/$base_name.tex"
+echo "$latex_content$latex_footer" > "$filename"
+# Ask if the user wants to edit the file
+read -p "Do you want to edit the LaTeX file before compiling? (y/n): " edit_choice
+if [ "$edit_choice" = "y" ] || [ "$edit_choice" = "Y" ]; then
+    nvim "$filename"
+fi
+# Automatically compile to PDF
+cd "$output_dir" || exit 1
+pdflatex -interaction=nonstopmode "$base_name.tex"
+# Run your cleaner script (replace 'latex_cleaner.sh' with your actual script name)
+cleaner
+# Output the result
+echo "Generated PDF: $output_dir/$base_name.pdf"

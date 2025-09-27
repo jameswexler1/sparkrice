@@ -1,0 +1,40 @@
+#!/bin/bash
+set -e
+
+IMG="/tmp/ocr_gemini.png"
+TXT="/tmp/ocr_gemini.txt"
+
+# 1. Screenshot selection
+maim -s "$IMG"
+
+# 2. OCR
+tesseract "$IMG" "${TXT%.txt}" --psm 6 --dpi 300 -l eng
+TEXT=$(cat "$TXT" | sed '/^[[:space:]]*$/d' | sed '/^[A-Z]{9,}$/d')  # Filter noise
+
+# 3. Quick MCQ check
+if echo "$TEXT" | grep -qE "^(What|Which|Who|Where|When|Why|How).*?(A\)|[0-9]\.|[-•])"; then
+    MODEL="flash"
+else
+    # Ask user to choose model
+    MODEL=$(printf "flash\npro" | dmenu -i -p "Model for written question? (flash=fast, pro=strong):")
+    [ -z "$MODEL" ] && exit 1
+fi
+
+# 4. Query Gemini with model
+ANSWER=$(echo "$TEXT" | ~/.local/bin/askgemini.py --model "$MODEL")
+
+# 5. Show in dmenu
+if echo "$ANSWER" | grep -q '^\*'; then
+    # Bullet list → each bullet is a separate entry
+    echo "$ANSWER" | sed 's/^\* \+//' | dmenu -i -p "Cheater:"
+else
+    # Long paragraph → split by punctuation
+    # Remove newlines
+    clean=$(echo "$ANSWER" | tr '\n' ' ' | sed 's/  */ /g')
+    # Split at punctuation marks and keep them
+    # This produces one entry per sentence/chunk
+    echo "$clean" | sed 's/\([.!?,;]\)/\1\n/g' | sed '/^[[:space:]]*$/d' | dmenu -i -p "Cheater:"
+fi
+
+# 6. Copy to clipboard
+echo "$ANSWER" | xclip -selection clipboard

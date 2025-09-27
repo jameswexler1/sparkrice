@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Define the MAC address of your Bluetooth earbuds
+MAC_ADDRESS="F0:AE:66:D3:56:FF"  # Replace this with your earbuds' MAC address
+
+# Log the time and state for debugging purposes
+echo "$(date) - Checking Bluetooth status..." >> /tmp/bluetooth_log.txt
+
+# Check if Bluetooth is blocked using rfkill
+if rfkill list bluetooth | grep -q "Soft blocked: no"; then
+    # If Bluetooth is not blocked, block it
+    echo "$(date) - Blocking Bluetooth..." >> /tmp/bluetooth_log.txt
+    rfkill block bluetooth
+    systemctl --user stop bluetooth
+    notify-send "Bluetooth" "Bluetooth turned off"
+else
+    # If Bluetooth is blocked, unblock it
+    echo "$(date) - Unblocking Bluetooth..." >> /tmp/bluetooth_log.txt
+    rfkill unblock bluetooth
+    systemctl --user start bluetooth
+    notify-send "Bluetooth" "Bluetooth turned on"
+
+    # Wait for Bluetooth to initialize
+    echo "$(date) - Waiting for Bluetooth to initialize..." >> /tmp/bluetooth_log.txt
+    sleep 5
+
+    # Connect to the Bluetooth device using bluetoothctl
+    echo "$(date) - Attempting to connect to earbuds..." >> /tmp/bluetooth_log.txt
+    bluetoothctl << EOF
+    power on
+    agent on
+    default-agent
+    connect $MAC_ADDRESS
+EOF
+
+    # Wait a second to let connection settle
+    sleep 2
+
+    # Check if device is connected
+    CONNECTION_STATUS=$(bluetoothctl info $MAC_ADDRESS | grep "Connected: yes")
+
+    if [ -n "$CONNECTION_STATUS" ]; then
+        notify-send "Bluetooth" "Successfully connected to earbuds."
+        echo "$(date) - Successfully connected to earbuds." >> /tmp/bluetooth_log.txt
+    else
+        notify-send "Bluetooth" "Failed to connect to earbuds."
+        echo "$(date) - Failed to connect to earbuds." >> /tmp/bluetooth_log.txt
+    fi
+fi
+
+kill -44 $(pidof dwmblocks)

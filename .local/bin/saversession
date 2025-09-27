@@ -1,0 +1,10 @@
+
+#!/bin/bash
+# Define where to store the session file
+SESSION_FILE="$HOME/.local/share/brave_session.json"
+
+# Query Brave’s remote debugging endpoint (ensure Brave is running with the flag)
+curl -s http://localhost:9222/json | \
+  jq -r '.[] | select(.type=="page") | .url' > "$SESSION_FILE"
+
+echo "Session saved to $SESSION_FILE"

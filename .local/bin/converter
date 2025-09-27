@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# Ask which folder
+folder_selection=$(printf "Home\nDownloads" | dmenu -p "Choose target folder:")
+[ -z "$folder_selection" ] && notify-send "No folder chosen. Exiting." && exit 1
+
+case "$folder_selection" in
+    Home) folder_path="$HOME" ;;
+    Downloads) folder_path="$HOME/Downloads" ;;
+    *) notify-send "Invalid folder. Exiting." ; exit 1 ;;
+esac
+
+# Build file list
+file_list=("All files")
+while IFS= read -r file; do
+    file_list+=("$(basename "$file")")
+done < <(find "$folder_path" -maxdepth 1 -name "*.mp4")
+
+# Ask which file
+file_selection=$(printf "%s\n" "${file_list[@]}" | dmenu -p "Select file:")
+[ -z "$file_selection" ] && notify-send "No file selected. Exiting." && exit 1
+
+# Determine files to process
+if [ "$file_selection" = "All files" ]; then
+    files_to_process=("$folder_path"/*.mp4)
+else
+    files_to_process=("$folder_path/$file_selection")
+fi
+
+# Notify start
+notify-send "Converter" "Conversion started..."
+
+# Process files
+shopt -s nullglob
+any_failed=0
+for file in "${files_to_process[@]}"; do
+    echo "Processing: $file"
+
+    temp="${file}.tmp.mp4"
+
+    ffmpeg -y -i "$file" \
+        -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2:(ow-iw)/2:(oh-ih)/2:black" \
+        -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p \
+        -c:a aac -movflags +faststart \
+        "$temp"
+
+    if [ $? -eq 0 ]; then
+        mv "$temp" "$file"
+        echo "Overwritten: $file"
+    else
+        echo "Error processing $file"
+        rm -f "$temp"
+        any_failed=1
+    fi
+done
+
+# Notify end
+if [ $any_failed -eq 0 ]; then
+    notify-send "Converter" "Conversion finished successfully."
+else
+    notify-send "Converter" "Conversion finished with errors."
+fi

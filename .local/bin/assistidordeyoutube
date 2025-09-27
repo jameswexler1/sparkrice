@@ -1,0 +1,39 @@
+
+#!/usr/bin/env bash
+
+# Ask for search query via dmenu
+query=$(echo "" | dmenu -p "YouTube search:")
+[ -z "$query" ] && exit 0   # exit if nothing entered
+
+# Fetch results
+results_raw=$(
+  curl -s "https://www.youtube.com/results?search_query=$(echo "$query" | sed 's/ /+/g')" \
+  | grep -o 'var ytInitialData = {.*};' \
+  | sed 's/var ytInitialData = //' \
+  | sed 's/;$//' \
+  | jq -r '
+      .. | objects | select(has("videoRenderer")) | .videoRenderer
+      | "\(.videoId)|\(.title.runs[0].text)|\(.ownerText.runs[0].text // "Unknown Channel")|\(.publishedTimeText.simpleText // "Unknown Date")"
+    ' \
+  | head -20
+)
+
+[ -z "$results_raw" ] && exit 0   # no results found
+
+# Format neatly into aligned columns
+results=$(
+  echo "$results_raw" | while IFS="|" read -r id title channel date; do
+    printf "%s|%-70s %-25s %s\n" "$id" "$title" "$channel" "$date"
+  done
+)
+
+# Show nicely formatted entries in dmenu
+titles=$(echo "$results" | cut -d'|' -f2-)
+selected_title=$(echo "$titles" | dmenu -i -l 10 -p "Select video:")
+[ -z "$selected_title" ] && exit 0   # nothing selected
+
+# Map back to video ID
+video_id=$(echo "$results" | grep "|$selected_title$" | cut -d'|' -f1)
+
+# Play with mpv
+[ -n "$video_id" ] && mpv "https://www.youtube.com/watch?v=$video_id"

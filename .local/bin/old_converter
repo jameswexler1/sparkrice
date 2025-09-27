@@ -1,0 +1,28 @@
+
+#!/bin/bash
+# reencode_overwrite.sh
+# This script finds all .mp4 files in your home folder (non-recursively),
+# re-encodes them to a WhatsApp-compatible format, and overwrites the original file.
+#
+# WARNING: This operation is destructive. Make sure you have backups if needed.
+
+shopt -s nullglob
+
+for file in "$HOME"/*.mp4; do
+    echo "Processing: $file"
+    # Create a temporary output file
+    temp="${file}.tmp.mp4"
+    ffmpeg -y -i "$file" \
+        -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p \
+        -c:a aac -movflags +faststart \
+        "$temp"
+    if [ $? -eq 0 ]; then
+        mv "$temp" "$file"
+        echo "Overwritten: $file"
+    else
+        echo "Error processing $file"
+        rm -f "$temp"
+    fi
+done
+
+echo "Re-encoding complete."

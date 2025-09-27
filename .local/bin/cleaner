@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Define the target directories
+TARGET_DIRS=(
+  "$HOME/Documents/Notes"
+  "$HOME/Documents/Recipes"
+)
+
+# Loop through each directory
+for DIR in "${TARGET_DIRS[@]}"; do
+  if [ -d "$DIR" ]; then
+    # Send a notification indicating the start of the cleanup process
+    notify-send "Latex Cleanup" "Cleaning LaTeX auxiliary files in $DIR..."
+
+    # Find and delete the .aux, .log, and .tex files
+    find "$DIR" -type f \( -name "*.aux" -o -name "*.log" -o -name "*.tex" \) -exec rm -f {} \;
+
+    # Send a notification indicating the cleanup is completed
+    notify-send "Latex Cleanup" "Cleanup completed in $DIR."
+  else
+    # Send a notification if the directory is not found
+    notify-send "Latex Cleanup" "Directory $DIR not found!"
+  fi
+done

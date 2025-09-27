@@ -1,0 +1,10 @@
+
+#!/bin/bash
+if pgrep redshift > /dev/null; then
+    notify-send "Disabling redshift..."
+    redshift -x
+    pkill redshift
+else
+    nofify-send "Enabling redshift..."
+    redshift &
+fi

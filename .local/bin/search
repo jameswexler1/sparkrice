@@ -1,0 +1,22 @@
+#!/bin/bash
+# file_search.sh - Search and open files/folders using fuzzy dmenu (case-insensitive)
+
+# Search type prompt (already piped)
+search_type=$(printf "Files\nFolders\nBoth" | dmenu -i -p "Search for:")
+case "$search_type" in
+  Files) fd_opts="--type f" ;;
+  Folders) fd_opts="--type d" ;;
+  Both) fd_opts="--type f --type d" ;;
+  *) exit 1 ;;
+esac
+
+# Prompt for search pattern to pre-filter (now piped to avoid hang)
+pattern=$(echo "" | dmenu -i -p "Enter search pattern (empty for all):")
+
+# Use fd to gather filtered list and feed to dmenu (handle empty pattern)
+if [ -z "$pattern" ]; then
+  selection=$(fd $fd_opts --max-depth 4 --max-results 2000 --ignore . ~ | dmenu -i -l 15 -p "Choose file/folder:")
+else
+  selection=$(fd $fd_opts --max-depth 4 --max-results 2000 --ignore "$pattern" ~ | dmenu -i -l 15 -p "Choose file/folder:")
+fi
+[ -n "$selection" ] && xdg-open "$selection"

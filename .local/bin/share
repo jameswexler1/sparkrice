@@ -1,0 +1,71 @@
+#!/bin/bash
+# Script to share via LocalSend with dmenu prompt
+
+# Function to center and resize LocalSend window
+center_window() {
+  sleep 0.3
+  sw=$(xdpyinfo | grep dimensions | awk '{print $2}' | cut -d'x' -f1)
+  sh=$(xdpyinfo | grep dimensions | awk '{print $2}' | cut -d'x' -f2)
+  ww=370
+  wh=480
+  x=$((sw / 2 - ww / 2))
+  y=$((sh / 2 - wh / 2))
+  wid=$(xdotool search --onlyvisible --class "Localsend" 2>/dev/null | head -n1)
+  if [ -n "$wid" ]; then
+    xdotool windowsize "$wid" $ww $wh
+    xdotool windowmove "$wid" $x $y
+  fi
+}
+
+# Prompt with dmenu
+choice=$(printf "Clipboard\nFile\nFolder" | dmenu -p "Share via LocalSend:")
+
+case "$choice" in
+  Clipboard)
+    clipboard_content=$(xclip -o -selection clipboard)
+    if [ -n "$clipboard_content" ]; then
+      nohup localsend </dev/null >/dev/null 2>&1 & disown
+      center_window &
+      sleep 0.3
+      wid=$(xdotool search --onlyvisible --class "Localsend" 2>/dev/null | head -n1)
+      if [ -n "$wid" ]; then
+        xdotool windowactivate "$wid"
+        xdotool key ctrl+v
+      fi
+    else
+      notify-send "Clipboard is empty"
+    fi
+    ;;
+  File)
+    notify-send "Select one or more files (space to select, q to quit)"
+    sw=$(xdpyinfo | grep dimensions | awk '{print $2}' | cut -d'x' -f1)
+    sh=$(xdpyinfo | grep dimensions | awk '{print $2}' | cut -d'x' -f2)
+    stw=$((80 * 9))
+    sth=$((24 * 18))
+    stx=$((sw / 2 - stw / 2))
+    sty=$((sh / 2 - sth / 2))
+    st -c FloatingTerm -g 80x24+${stx}+${sty} -e lf -selection-path=/tmp/localsend_selection
+    if [ -s /tmp/localsend_selection ]; then
+      mapfile -t paths < /tmp/localsend_selection
+      rm -f /tmp/localsend_selection
+      nohup localsend "${paths[@]}" </dev/null >/dev/null 2>&1 & disown
+      center_window &
+    fi
+    ;;
+  Folder)
+    notify-send "Navigate INTO the folder you want to share, then quit (q) without selecting files"
+    sw=$(xdpyinfo | grep dimensions | awk '{print $2}' | cut -d'x' -f1)
+    sh=$(xdpyinfo | grep dimensions | awk '{print $2}' | cut -d'x' -f2)
+    stw=$((80 * 9))
+    sth=$((24 * 18))
+    stx=$((sw / 2 - stw / 2))
+    sty=$((sh / 2 - sth / 2))
+    st -c FloatingTerm -g 80x24+${stx}+${sty} -e lf -last-dir-path=/tmp/localsend_selection
+    if [ -s /tmp/localsend_selection ]; then
+      mapfile -t paths < /tmp/localsend_selection
+      rm -f /tmp/localsend_selection
+      nohup localsend "${paths[@]}" </dev/null >/dev/null 2>&1 & disown
+      center_window &
+    fi
+    ;;
+esac

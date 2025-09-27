@@ -1,0 +1,37 @@
+
+#!/bin/sh
+# Toggle the webcam overlay using ffplay and make it follow across desktops
+
+# Check if ffplay is already running
+if pgrep -f "ffplay -f v4l2 -i /dev/video0" > /dev/null; then
+    pkill -f "ffplay -f v4l2 -i /dev/video0"
+else
+    # Start ffplay to show webcam
+    ffplay -noborder -x 320 -y 240 -f v4l2 -i /dev/video0 &
+
+    # Wait for the window to appear
+    sleep 2  # Increased sleep time to ensure ffplay window is fully loaded
+
+    # Get the window ID
+    WID=$(xdotool search --onlyvisible --class "ffplay" | tail -1)
+    echo "Window ID: $WID"
+
+    # Set screen dimensions
+    SCREEN_WIDTH=1366
+    SCREEN_HEIGHT=768
+
+    # Calculate the position for the bottom-right corner (with margin)
+    X_POS=$((SCREEN_WIDTH - 340))  # 320 width + 20px margin
+    Y_POS=$((SCREEN_HEIGHT - 260)) # 240 height + 20px margin
+
+    echo "Calculated Position: X = $X_POS, Y = $Y_POS"
+
+    # Move the window to the calculated bottom-right corner
+    xdotool windowmove "$WID" "$X_POS" "$Y_POS"
+
+    # Make the window sticky by assigning it to all tags (1-9)
+    for i in {1..9}; do
+        # Simulate the "mod+shift+<tag_number>" to move the window to all tags
+        xdotool key "ctrl+shift+${i}"
+    done
+fi

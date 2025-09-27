@@ -1,0 +1,723 @@
+#!/bin/bash
+
+# Master Video Editor Script
+# Dependencies: ffmpeg (including ffplay and ffprobe), dmenu, slop, xcolor, notify-send, xwininfo
+# Usage: Run the script, select operation via dmenu, follow prompts.
+# Note: For precise cropping, painting, watermarking, etc., ffplay is used to display the video for cursor selection.
+
+HISTORY_FILE="$HOME/.video_edit_history"
+mkdir -p "$(dirname "$HISTORY_FILE")"
+touch "$HISTORY_FILE"
+
+shopt -s nullglob
+
+# Function to select folder
+select_folder() {
+    local folder_selection
+    folder_selection=$(printf "Home\nDownloads\nCustom" | dmenu -p "Choose target folder:")
+    [ -z "$folder_selection" ] && notify-send "No folder chosen. Exiting." && exit 1
+
+    local folder_path
+    case "$folder_selection" in
+        Home) folder_path="$HOME" ;;
+        Downloads) folder_path="$HOME/Downloads" ;;
+        Custom) folder_path=$(dmenu -p "Enter custom path:") ;;
+        *) notify-send "Invalid folder. Exiting." ; exit 1 ;;
+    esac
+    echo "$folder_path"
+}
+
+# Function to build file list (mp4, mkv, mov, webm, etc.)
+build_file_list() {
+    local folder="$1"
+    local file_list=("All files")
+    local file
+    while IFS= read -r file; do
+        file_list+=("$(basename "$file")")
+    done < <(find "$folder" -maxdepth 1 \( -name "*.mp4" -o -name "*.mkv" -o -name "*.mov" -o -name "*.webm" -o -name "*.avi" \))
+    printf "%s\n" "${file_list[@]}"
+}
+
+# Function to select file(s)
+select_files() {
+    local folder="$1"
+    local batch_mode="$2"  # "single" or "batch"
+    local file_list
+    file_list=$(build_file_list "$folder")
+
+    if [ "$batch_mode" = "single" ]; then
+        local file_selection
+        file_selection=$(printf "%s\n" "$file_list" | dmenu -p "Select file:")
+        [ -z "$file_selection" ] && notify-send "No file selected. Exiting." && exit 1
+        if [ "$file_selection" = "All files" ]; then
+            printf "%s\n" "$folder"/*.{mp4,mkv,mov,webm,avi}
+        else
+            printf "%s\n" "$folder/$file_selection"
+        fi
+    else
+        local selected_files=()
+        while true; do
+            local file_selection
+            file_selection=$(printf "%s\n" "$file_list" | dmenu -p "Select file (empty to finish, All for all):")
+            [ -z "$file_selection" ] && break
+            if [ "$file_selection" = "All files" ]; then
+                printf "%s\n" "$folder"/*.{mp4,mkv,mov,webm,avi}
+                return
+            fi
+            selected_files+=("$folder/$file_selection")
+        done
+        printf "%s\n" "${selected_files[@]}"
+    fi
+}
+
+# Function to build auxiliary file list (for logos, audio, srt, etc.)
+build_aux_file_list() {
+    local folder="$1"
+    local extensions="$2"  # comma-separated, e.g., "png,jpg,jpeg"
+    local ext_args=()
+    IFS=',' read -r -a ext_array <<< "$extensions"
+    for ext in "${ext_array[@]}"; do
+        ext_args+=(-o -name "*.$ext")
+    done
+    unset 'ext_args[0]'  # Remove the first -o
+    local file_list=()
+    local file
+    while IFS= read -r file; do
+        file_list+=("$(basename "$file")")
+    done < <(find "$folder" -maxdepth 1 "${ext_args[@]}")
+    printf "%s\n" "${file_list[@]}"
+}
+
+# Function to select auxiliary file (single file from home, filtered by extensions)
+select_aux_file() {
+    local extensions="$1"
+    local prompt="$2"
+    local folder="$HOME"
+    local file_list
+    file_list=$(build_aux_file_list "$folder" "$extensions")
+    local file_selection
+    file_selection=$(printf "%s\n" "$file_list" | dmenu -p "$prompt")
+    [ -z "$file_selection" ] && return
+    echo "$folder/$file_selection"
+}
+
+# Function to get output file name
+get_output_file() {
+    local input_file="$1"
+    local suffix="$2"
+    local ext="${input_file##*.}"
+    echo "${input_file%.*}${suffix}.${ext}"
+}
+
+# Function to get video resolution
+get_resolution() {
+    local input_file="$1"
+    local width height
+    width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$input_file")
+    height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$input_file")
+    echo "$width $height"
+}
+
+# Function to get relative region using ffplay and slop, accounting for window scaling and letterboxing
+get_relative_region() {
+    local input_file="$1"
+    local mode="${2:-region}"  # Default to region; alternative: position
+    local res
+    res=$(get_resolution "$input_file")
+    read -r video_width video_height <<< "$res"
+    local notify_msg="Opening video in ffplay for region selection. Pause with space if needed, then drag cursor to select region on the video window. Make sure to select within the video content area."
+    if [ "$mode" = "position" ]; then
+        notify_msg="Opening video in ffplay for position selection. Pause with space if needed, then select a small area around the desired placement point (center will be used)."
+    fi
+    notify-send "Video Editor" "$notify_msg"
+    ffplay -noborder -x "$video_width" -y "$video_height" -i "$input_file" -loop 0 -window_title "Video Region Selection" &
+    local pid=$!
+    sleep 2  # Wait for window to open
+    local window_info
+    window_info=$(xwininfo -name "Video Region Selection" 2>/dev/null)
+    if [ -z "$window_info" ]; then
+        kill "$pid"
+        notify-send "Error" "Could not find ffplay window. Ensure xwininfo is installed."
+        exit 1
+    fi
+    local abs_x
+    abs_x=$(echo "$window_info" | grep "Absolute upper-left X:" | awk '{print $4}')
+    local abs_y
+    abs_y=$(echo "$window_info" | grep "Absolute upper-left Y:" | awk '{print $4}')
+    local win_width
+    win_width=$(echo "$window_info" | grep "Width:" | awk '{print $2}')
+    local win_height
+    win_height=$(echo "$window_info" | grep "Height:" | awk '{print $2}')
+
+    # Calculate scaling factor (preserving aspect ratio)
+    local scale_w
+    scale_w=$(awk "BEGIN {printf \"%.6f\", $win_width / $video_width}")
+    local scale_h
+    scale_h=$(awk "BEGIN {printf \"%.6f\", $win_height / $video_height}")
+    local scale
+    if (( $(awk "BEGIN {print ($scale_w < $scale_h)}") )); then
+        scale=$scale_w
+    else
+        scale=$scale_h
+    fi
+
+    # Calculate displayed video dimensions
+    local disp_w
+    disp_w=$(awk "BEGIN {printf \"%.0f\", $video_width * $scale}")
+    local disp_h
+    disp_h=$(awk "BEGIN {printf \"%.0f\", $video_height * $scale}")
+
+    # Calculate letterbox offsets (assuming centered)
+    local offset_x
+    offset_x=$(awk "BEGIN {printf \"%.0f\", ($win_width - $disp_w) / 2}")
+    local offset_y
+    offset_y=$(awk "BEGIN {printf \"%.0f\", ($win_height - $disp_h) / 2}")
+
+    # Get selection
+    local sel_x sel_y sel_w sel_h
+    slop -f "%x %y %w %h" > /tmp/slop
+    read -r sel_x sel_y sel_w sel_h < /tmp/slop
+    rm /tmp/slop
+    kill "$pid"
+    wait "$pid" 2>/dev/null
+
+    # Calculate relative coordinates, adjusted for scaling and offsets
+    local rel_x
+    rel_x=$(awk "BEGIN {printf \"%.0f\", ($sel_x - $abs_x - $offset_x) / $scale}")
+    local rel_y
+    rel_y=$(awk "BEGIN {printf \"%.0f\", ($sel_y - $abs_y - $offset_y) / $scale}")
+    local rel_w
+    rel_w=$(awk "BEGIN {printf \"%.0f\", $sel_w / $scale}")
+    local rel_h
+    rel_h=$(awk "BEGIN {printf \"%.0f\", $sel_h / $scale}")
+
+    # Adjust for position mode (use center of selection)
+    if [ "$mode" = "position" ]; then
+        rel_x=$(awk "BEGIN {printf \"%.0f\", $rel_x + $rel_w / 2}")
+        rel_y=$(awk "BEGIN {printf \"%.0f\", $rel_y + $rel_h / 2}")
+    fi
+
+    # Basic validation (ensure non-negative and within bounds, but allow user to proceed)
+    if [ "$mode" = "region" ]; then
+        if [ "$rel_x" -lt 0 ] || [ "$rel_y" -lt 0 ] || [ "$rel_w" -le 0 ] || [ "$rel_h" -le 0 ] || [ "$rel_x" -ge "$video_width" ] || [ "$rel_y" -ge "$video_height" ]; then
+            notify-send "Warning" "Selected region may be out of bounds. Coordinates: $rel_x $rel_y $rel_w $rel_h"
+        fi
+    else  # position mode
+        if [ "$rel_x" -lt 0 ] || [ "$rel_y" -lt 0 ] || [ "$rel_x" -ge "$video_width" ] || [ "$rel_y" -ge "$video_height" ]; then
+            notify-send "Warning" "Selected position may be out of bounds. Coordinates: $rel_x $rel_y"
+        fi
+    fi
+
+    echo "$rel_x $rel_y $rel_w $rel_h"
+}
+
+# Function to validate time format (seconds or HH:MM:SS)
+validate_time() {
+    local time="$1"
+    if [[ "$time" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [[ "$time" =~ ^([0-9]{1,2}:)?[0-9]{1,2}:[0-9]{1,2}(\.[0-9]+)?$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to validate numeric
+validate_numeric() {
+    local num="$1"
+    if [[ "$num" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to validate volume db
+validate_volume() {
+    local db="$1"
+    if [[ "$db" =~ ^[+-]?[0-9]+(\.[0-9]+)?$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to preview and confirm command
+preview_command() {
+    local cmd="$1"
+    notify-send "Preview Command" "$cmd"
+    local response
+    response=$(printf "No\nYes" | dmenu -i -p "Execute?")
+    [ "$response" = "Yes" ]
+}
+
+# Function to log command to history
+log_history() {
+    local cmd="$1"
+    echo "$cmd" >> "$HISTORY_FILE"
+    # Keep last 20 unique commands
+    tail -n 20 "$HISTORY_FILE" | awk '!seen[$0]++' > "$HISTORY_FILE.tmp"
+    mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
+}
+
+# Function to select from history
+select_history() {
+    if [ ! -s "$HISTORY_FILE" ]; then
+        notify-send "No history available."
+        exit 1
+    fi
+    local selected_cmd
+    selected_cmd=$(cat "$HISTORY_FILE" | dmenu -p "Select recent command:")
+    [ -z "$selected_cmd" ] && exit 1
+    echo "$selected_cmd"
+}
+
+# Main menu
+main_menu() {
+    local operation
+    operation=$(printf "Crop\nCut/Trim\nResize/Scale\nSpeed Change\nRotate/Flip\nConcatenate\nSplit\nColor Paint\nOverlay Text\nWatermark\nPicture-in-Picture\nApply Filters\nStabilization\nExtract Audio\nReplace Audio\nAdjust Volume\nMute\nExtract Frame\nExtract Frames\nMake GIF\nConvert Format\nBurn Subtitles\nExtract Subtitles\nAdd Subtitles\nBatch Processing\nHistory Rerun" | dmenu -p "Select operation:")
+    [ -z "$operation" ] && notify-send "No operation selected. Exiting." && exit 1
+    echo "$operation"
+}
+
+# Feature functions
+do_crop() {
+    local input_file="$1"
+    local X Y W H
+    read -r X Y W H < <(get_relative_region "$input_file" "region")
+    local output_file
+    output_file=$(get_output_file "$input_file" "_cropped")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf crop=$W:$H:$X:$Y -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_trim() {
+    local input_file="$1"
+    local start_time
+    start_time=$(dmenu -p "Start time (HH:MM:SS or seconds):")
+    [ -z "$start_time" ] && return
+    if ! validate_time "$start_time"; then
+        notify-send "Invalid start time format."
+        return
+    fi
+    local end_time
+    end_time=$(dmenu -p "End time (HH:MM:SS or seconds):")
+    [ -z "$end_time" ] && return
+    if ! validate_time "$end_time"; then
+        notify-send "Invalid end time format."
+        return
+    fi
+    local output_file
+    output_file=$(get_output_file "$input_file" "_trimmed")
+    local cmd="ffmpeg -y -i \"$input_file\" -ss $start_time -to $end_time -c copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_resize() {
+    local input_file="$1"
+    local scale
+    scale=$(printf "1920x1080\n1280x720\n640x480\nCustom" | dmenu -p "Select scale:")
+    if [ "$scale" = "Custom" ]; then
+        scale=$(dmenu -p "Enter width:height:")
+    fi
+    [ -z "$scale" ] && return
+    local output_file
+    output_file=$(get_output_file "$input_file" "_resized")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf scale=$scale -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_speed() {
+    local input_file="$1"
+    local speed
+    speed=$(dmenu -p "Speed factor (e.g., 0.5 for slow, 2 for fast):")
+    [ -z "$speed" ] && return
+    if ! validate_numeric "$speed"; then
+        notify-send "Invalid speed factor (must be numeric)."
+        return
+    fi
+    local output_file
+    output_file=$(get_output_file "$input_file" "_speed${speed}")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf setpts=PTS/$speed -af atempo=$speed -c:v libx264 -crf 23 -preset fast -c:a aac \"$output_file\""
+    echo "$cmd"
+}
+
+do_rotate() {
+    local input_file="$1"
+    local rotate
+    rotate=$(printf "90° CW\n90° CCW\n180°\nFlip H\nFlip V" | dmenu -p "Select rotation/flip:")
+    [ -z "$rotate" ] && return
+    local filter
+    case "$rotate" in
+        "90° CW") filter="transpose=1" ;;
+        "90° CCW") filter="transpose=2" ;;
+        "180°") filter="transpose=1,transpose=1" ;;
+        "Flip H") filter="hflip" ;;
+        "Flip V") filter="vflip" ;;
+    esac
+    local output_file
+    output_file=$(get_output_file "$input_file" "_rotated")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf $filter -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_concat() {
+    local folder="$1"
+    local files_to_process
+    mapfile -t files_to_process < <(select_files "$folder" "batch")
+    if [ ${#files_to_process[@]} -lt 2 ]; then
+        notify-send "Need at least two files for concatenation."
+        return
+    fi
+    local output_file="$folder/concatenated.mp4"
+    local concat_file="/tmp/concat.txt"
+    > "$concat_file"
+    local f
+    for f in "${files_to_process[@]}"; do
+        echo "file '$f'" >> "$concat_file"
+    done
+    local cmd="ffmpeg -y -f concat -safe 0 -i \"$concat_file\" -c copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_split() {
+    local input_file="$1"
+    local duration
+    duration=$(dmenu -p "Segment duration (seconds):")
+    [ -z "$duration" ] && return
+    if ! validate_numeric "$duration"; then
+        notify-send "Invalid duration (must be numeric)."
+        return
+    fi
+    local output_prefix="${input_file%.*}_segment_%03d.${input_file##*.}"
+    local cmd="ffmpeg -y -i \"$input_file\" -f segment -segment_time $duration -c copy \"$output_prefix\""
+    echo "$cmd"
+}
+
+do_color_paint() {
+    local input_file="$1"
+    local X Y W H
+    read -r X Y W H < <(get_relative_region "$input_file" "region")
+    local color
+    color=$(xcolor -S 4)  # Assuming xcolor picks hex
+    [ -z "$color" ] && return
+    local output_file
+    output_file=$(get_output_file "$input_file" "_painted")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf drawbox=x=$X:y=$Y:w=$W:h=$H:color=$color@1.0:t=fill -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_overlay_text() {
+    local input_file="$1"
+    local text
+    text=$(dmenu -p "Enter text:")
+    [ -z "$text" ] && return
+    local font
+    font=$(dmenu -p "Font file/path (or default):" <<< "/usr/share/fonts/TTF/dejavu/DejaVuSans.ttf")
+    [ -z "$font" ] && return
+    if [ ! -f "$font" ]; then
+        notify-send "Font file not found."
+        return
+    fi
+    local X Y _ _
+    read -r X Y _ _ < <(get_relative_region "$input_file" "position")
+    local size
+    size=$(dmenu -p "Font size:" <<< "24")
+    [ -z "$size" ] && return
+    if ! validate_numeric "$size"; then
+        notify-send "Invalid font size."
+        return
+    fi
+    local color
+    color=$(dmenu -p "Text color (hex):" <<< "white")
+    [ -z "$color" ] && return
+    local position="x=$X:y=$Y"
+    local output_file
+    output_file=$(get_output_file "$input_file" "_text")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf drawtext=fontfile='$font':text='$text':$position:fontsize=$size:fontcolor=$color -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_watermark() {
+    local input_file="$1"
+    local logo_file
+    logo_file=$(select_aux_file "png,jpg,jpeg,gif" "Select logo file:")
+    [ -z "$logo_file" ] && return
+    if [ ! -f "$logo_file" ]; then
+        notify-send "Logo file not found."
+        return
+    fi
+    local X Y _ _
+    read -r X Y _ _ < <(get_relative_region "$input_file" "position")
+    local output_file
+    output_file=$(get_output_file "$input_file" "_watermarked")
+    local cmd="ffmpeg -y -i \"$input_file\" -i \"$logo_file\" -filter_complex overlay=$X:$Y -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_pip() {
+    local input_file="$1"
+    local overlay_video
+    overlay_video=$(select_aux_file "mp4,mkv,mov,webm,avi" "Select overlay video file:")
+    [ -z "$overlay_video" ] && return
+    if [ ! -f "$overlay_video" ]; then
+        notify-send "Overlay video not found."
+        return
+    fi
+    local X Y _ _
+    read -r X Y _ _ < <(get_relative_region "$input_file" "position")
+    local position="$X:$Y"
+    local output_file
+    output_file=$(get_output_file "$input_file" "_pip")
+    local cmd="ffmpeg -y -i \"$input_file\" -i \"$overlay_video\" -filter_complex [1:v]scale=320:240[ovrl],[0:v][ovrl]overlay=$position -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_filters() {
+    local input_file="$1"
+    local filter
+    filter=$(printf "grayscale\nsepia\nblur\ninvert" | dmenu -p "Select filter:")
+    [ -z "$filter" ] && return
+    local vf
+    case "$filter" in
+        grayscale) vf="colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3" ;;
+        sepia) vf="colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131" ;;
+        blur) vf="boxblur=2:1" ;;
+        invert) vf="negate" ;;
+    esac
+    local output_file
+    output_file=$(get_output_file "$input_file" "_filtered")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf $vf -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_stabilization() {
+    local input_file="$1"
+    local output_file
+    output_file=$(get_output_file "$input_file" "_stabilized")
+    local cmd1="ffmpeg -y -i \"$input_file\" -vf vidstabdetect -f null -"
+    local cmd2="ffmpeg -y -i \"$input_file\" -vf vidstabtransform -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    local cmd="$cmd1 && $cmd2"
+    echo "$cmd"
+}
+
+do_extract_audio() {
+    local input_file="$1"
+    local format
+    format=$(printf "mp3\nwav\nflac" | dmenu -p "Audio format:")
+    [ -z "$format" ] && return
+    local output_file="${input_file%.*}.$format"
+    local cmd="ffmpeg -y -i \"$input_file\" \"$output_file\""
+    echo "$cmd"
+}
+
+do_replace_audio() {
+    local input_file="$1"
+    local new_audio
+    new_audio=$(select_aux_file "mp3,wav,flac,aac" "Select new audio file:")
+    [ -z "$new_audio" ] && return
+    if [ ! -f "$new_audio" ]; then
+        notify-send "New audio file not found."
+        return
+    fi
+    local output_file
+    output_file=$(get_output_file "$input_file" "_newaudio")
+    local cmd="ffmpeg -y -i \"$input_file\" -i \"$new_audio\" -c:v copy -map 0:v:0 -map 1:a:0 \"$output_file\""
+    echo "$cmd"
+}
+
+do_adjust_volume() {
+    local input_file="$1"
+    local db
+    db=$(dmenu -p "Volume change in dB (e.g., +10 or -5):")
+    [ -z "$db" ] && return
+    if ! validate_volume "$db"; then
+        notify-send "Invalid volume change (e.g., +10 or -5)."
+        return
+    fi
+    local output_file
+    output_file=$(get_output_file "$input_file" "_volume")
+    local cmd="ffmpeg -y -i \"$input_file\" -af volume=${db}dB -c:v copy -c:a aac \"$output_file\""
+    echo "$cmd"
+}
+
+do_mute() {
+    local input_file="$1"
+    local output_file
+    output_file=$(get_output_file "$input_file" "_muted")
+    local cmd="ffmpeg -y -i \"$input_file\" -c copy -an \"$output_file\""
+    echo "$cmd"
+}
+
+do_extract_frame() {
+    local input_file="$1"
+    local time
+    time=$(dmenu -p "Timestamp (HH:MM:SS):")
+    [ -z "$time" ] && return
+    if ! validate_time "$time"; then
+        notify-send "Invalid timestamp format."
+        return
+    fi
+    local format
+    format=$(printf "png\njpg" | dmenu -p "Format:")
+    [ -z "$format" ] && return
+    local output_file="${input_file%.*}_frame.$format"
+    local cmd="ffmpeg -y -i \"$input_file\" -ss $time -vframes 1 \"$output_file\""
+    echo "$cmd"
+}
+
+do_extract_frames() {
+    local input_file="$1"
+    local interval
+    interval=$(dmenu -p "Interval (seconds):")
+    [ -z "$interval" ] && return
+    if ! validate_numeric "$interval"; then
+        notify-send "Invalid interval."
+        return
+    fi
+    local output_prefix="${input_file%.*}_frame_%04d.png"
+    local cmd="ffmpeg -y -i \"$input_file\" -vf fps=1/$interval \"$output_prefix\""
+    echo "$cmd"
+}
+
+do_make_gif() {
+    local input_file="$1"
+    local start
+    start=$(dmenu -p "Start time:")
+    [ -z "$start" ] && return
+    if ! validate_time "$start"; then
+        notify-send "Invalid start time."
+        return
+    fi
+    local duration
+    duration=$(dmenu -p "Duration (seconds):")
+    [ -z "$duration" ] && return
+    if ! validate_numeric "$duration"; then
+        notify-send "Invalid duration."
+        return
+    fi
+    local output_file="${input_file%.*}.gif"
+    local cmd="ffmpeg -y -ss $start -t $duration -i \"$input_file\" -vf fps=10,scale=320:-1:flags=lanczos \"$output_file\""
+    echo "$cmd"
+}
+
+do_convert_format() {
+    local input_file="$1"
+    local new_ext
+    new_ext=$(dmenu -p "New format (e.g., mkv, webm):")
+    [ -z "$new_ext" ] && return
+    local output_file="${input_file%.*}.$new_ext"
+    local cmd="ffmpeg -y -i \"$input_file\" -c copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_burn_subtitles() {
+    local input_file="$1"
+    local srt_file
+    srt_file=$(select_aux_file "srt" "Select SRT file:")
+    [ -z "$srt_file" ] && return
+    if [ ! -f "$srt_file" ]; then
+        notify-send "SRT file not found."
+        return
+    fi
+    local output_file
+    output_file=$(get_output_file "$input_file" "_subbed")
+    local cmd="ffmpeg -y -i \"$input_file\" -vf subtitles=\"$srt_file\" -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd"
+}
+
+do_extract_subtitles() {
+    local input_file="$1"
+    local output_file="${input_file%.*}.srt"
+    local cmd="ffmpeg -y -i \"$input_file\" \"$output_file\""
+    echo "$cmd"
+}
+
+do_add_subtitles() {
+    local input_file="$1"
+    local srt_file
+    srt_file=$(select_aux_file "srt" "Select SRT file:")
+    [ -z "$srt_file" ] && return
+    if [ ! -f "$srt_file" ]; then
+        notify-send "SRT file not found."
+        return
+    fi
+    local output_file
+    output_file=$(get_output_file "$input_file" "_withsubs")
+    local cmd="ffmpeg -y -i \"$input_file\" -i \"$srt_file\" -c copy -c:s mov_text \"$output_file\""
+    echo "$cmd"
+}
+
+# Main logic
+folder=$(select_folder)
+operation=$(main_menu)
+
+batch_mode="single"
+if [ "$operation" = "Batch Processing" ]; then
+    batch_mode="batch"
+    operation=$(main_menu)  # Select sub-operation for batch
+fi
+
+notify-send "Video Editor" "Processing started..."
+
+any_failed=0
+processed=0
+cmd=""
+if [ "$operation" = "History Rerun" ]; then
+    cmd=$(select_history)
+    if [ -n "$cmd" ] && preview_command "$cmd"; then
+        eval "$cmd" || any_failed=1
+        log_history "$cmd"
+        processed=1
+    fi
+elif [ "$operation" = "Concatenate" ]; then
+    cmd=$(do_concat "$folder")
+    if [ -n "$cmd" ] && preview_command "$cmd"; then
+        eval "$cmd" || any_failed=1
+        log_history "$cmd"
+        processed=1
+    fi
+else
+    mapfile -t files < <(select_files "$folder" "$batch_mode")
+    for file in "${files[@]}"; do
+        case "$operation" in
+            Crop) cmd=$(do_crop "$file") ;;
+            "Cut/Trim") cmd=$(do_trim "$file") ;;
+            "Resize/Scale") cmd=$(do_resize "$file") ;;
+            "Speed Change") cmd=$(do_speed "$file") ;;
+            "Rotate/Flip") cmd=$(do_rotate "$file") ;;
+            Split) cmd=$(do_split "$file") ;;
+            "Color Paint") cmd=$(do_color_paint "$file") ;;
+            "Overlay Text") cmd=$(do_overlay_text "$file") ;;
+            Watermark) cmd=$(do_watermark "$file") ;;
+            "Picture-in-Picture") cmd=$(do_pip "$file") ;;
+            "Apply Filters") cmd=$(do_filters "$file") ;;
+            Stabilization) cmd=$(do_stabilization "$file") ;;
+            "Extract Audio") cmd=$(do_extract_audio "$file") ;;
+            "Replace Audio") cmd=$(do_replace_audio "$file") ;;
+            "Adjust Volume") cmd=$(do_adjust_volume "$file") ;;
+            Mute) cmd=$(do_mute "$file") ;;
+            "Extract Frame") cmd=$(do_extract_frame "$file") ;;
+            "Extract Frames") cmd=$(do_extract_frames "$file") ;;
+            "Make GIF") cmd=$(do_make_gif "$file") ;;
+            "Convert Format") cmd=$(do_convert_format "$file") ;;
+            "Burn Subtitles") cmd=$(do_burn_subtitles "$file") ;;
+            "Extract Subtitles") cmd=$(do_extract_subtitles "$file") ;;
+            "Add Subtitles") cmd=$(do_add_subtitles "$file") ;;
+            *) notify-send "Unknown operation: $operation" ; continue ;;
+        esac
+
+        if [ -n "$cmd" ] && preview_command "$cmd"; then
+            eval "$cmd" || any_failed=1
+            log_history "$cmd"
+            processed=$((processed + 1))
+        fi
+    done
+fi
+
+if [ "$processed" -eq 0 ]; then
+    notify-send "Video Editor" "No processing performed (canceled or no commands executed)."
+elif [ "$any_failed" -eq 0 ]; then
+    notify-send "Video Editor" "Processing finished successfully."
+else
+    notify-send "Video Editor" "Processing finished with errors."
+fi
