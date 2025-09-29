@@ -163,7 +163,7 @@ function! CompileAndClean()
   let l:tex_file = l:output_dir . "/" . l:base . ".tex"
 
   " Build the pandoc command
-  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=/home/gustavo/.local/share/default_latex/default.tex"
+  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=$HOME/.local/share/default_latex/default.tex"
   echom "Running pandoc: " . l:pandoc_cmd
   let l:pandoc_result = system(l:pandoc_cmd)
   if v:shell_error
@@ -212,7 +212,7 @@ function! CompileAndClean()
   echom "Compilation complete. Check the generated PDF at " . l:output_dir . "/" . l:base . ".pdf"
 
   " Run the cleaner shell script after the compilation process
-  let l:shell_script = "/home/gustavo/.local/bin/cleaner"
+  let l:shell_script = "$HOME/.local/bin/cleaner"
   echom "Running shell script: " . l:shell_script
   let l:script_result = system(l:shell_script)
   if v:shell_error
@@ -241,7 +241,7 @@ function! CompileAndCleanTemplate2()
   let l:tex_file = l:output_dir . "/" . l:base . ".tex"
 
   " Build the pandoc command
-  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=/home/gustavo/.local/share/default_latex/template2.tex"
+  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=$HOME/.local/share/default_latex/template2.tex"
   echom "Running pandoc: " . l:pandoc_cmd
   let l:pandoc_result = system(l:pandoc_cmd)
   if v:shell_error
@@ -290,7 +290,7 @@ function! CompileAndCleanTemplate2()
   echom "Compilation complete. Check the generated PDF at " . l:output_dir . "/" . l:base . ".pdf"
 
   " Run the cleaner shell script after the compilation process
-  let l:shell_script = "/home/gustavo/.local/bin/cleaner"
+  let l:shell_script = "$HOME/.local/bin/cleaner"
   echom "Running shell script: " . l:shell_script
   let l:script_result = system(l:shell_script)
   if v:shell_error
@@ -317,11 +317,11 @@ function! CompileAndCleanWithBib()
   " Prompt for template choice
   let l:template_choice = input("Which template? (1 for default, 2 for template2, 3 for ABNT): ")
   if l:template_choice == '1'
-    let l:template_path = "/home/gustavo/.local/share/default_latex/default.tex"
+    let l:template_path = "$HOME/.local/share/default_latex/default.tex"
   elseif l:template_choice == '2'
-    let l:template_path = "/home/gustavo/.local/share/default_latex/template2.tex"
+    let l:template_path = "$HOME/.local/share/default_latex/template2.tex"
   elseif l:template_choice == '3'
-    let l:template_path = "/home/gustavo/.local/share/default_latex/abnt.tex"
+    let l:template_path = "$HOME/.local/share/default_latex/abnt.tex"
   else
     echom "Invalid template choice. Please enter 1, 2, or 3."
     return
@@ -331,7 +331,7 @@ function! CompileAndCleanWithBib()
   let l:tex_file = l:output_dir . "/" . l:base . ".tex"
 
   " Build the pandoc command with bibliography and biblatex flag
-  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=" . l:template_path . " --bibliography=/home/gustavo/.local/share/biblatex/uni.bib --biblatex"
+  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=" . l:template_path . " --bibliography=$HOME/.local/share/biblatex/uni.bib --biblatex"
   echom "Running pandoc: " . l:pandoc_cmd
   let l:pandoc_result = system(l:pandoc_cmd)
   if v:shell_error
@@ -461,7 +461,7 @@ function! CompileAndCleanWithBib()
   echom "Compilation complete. Check the generated PDF at " . l:output_dir . "/" . l:base . ".pdf"
 
   " Run the cleaner shell script after the compilation process
-  let l:shell_script = "/home/gustavo/.local/bin/cleaner"
+  let l:shell_script = "$HOME/.local/bin/cleaner"
   echom "Running shell script: " . l:shell_script
   let l:script_result = system(l:shell_script)
   if v:shell_error
