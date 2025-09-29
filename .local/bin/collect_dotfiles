@@ -1,0 +1,136 @@
+#!/bin/bash
+
+# Define the target directory for your dotfiles repo
+DOTFILES_DIR="$HOME/Work/GITHUB/sparkrice"
+mkdir -p "$DOTFILES_DIR"
+
+# List of exact files/directories to include, based on voidrice tree (excluding repo metadata)
+# Removed ".local/bin/*" to handle it specially below
+INCLUDES=(
+    ".config/dunst/dunstrc"
+    ".config/firefox/larbs.js"
+    ".config/fontconfig/fonts.conf"
+    ".config/gtk-2.0/gtkrc-2.0"
+    ".config/gtk-3.0/settings.ini"
+    ".config/latexmk/latexmkrc"
+    ".config/lf/cleaner"
+    ".config/lf/icons"
+    ".config/lf/lfrc"
+    ".config/lf/scope"
+    ".config/mimeapps.list"
+    ".config/mpd/mpd.conf"
+    ".config/mpv/input.conf"
+    ".config/mpv/script_modules/mpvSockets"
+    ".config/mpv/scripts/modules.lua"
+    ".config/ncmpcpp/bindings"
+    ".config/ncmpcpp/config"
+    ".config/newsboat/config"
+    ".config/nsxiv/exec/key-handler"
+    ".config/nvim/init.vim"
+    ".config/pinentry/preexec"
+    ".config/pipewire/pipewire.conf.d/user-session.conf"
+    ".config/pulse/daemon.conf"
+    ".config/python/pythonrc"
+    ".config/shell/aliasrc"
+    ".config/shell/bm-dirs"
+    ".config/shell/bm-files"
+    ".config/shell/inputrc"
+    ".config/shell/profile"
+    ".config/sxiv"  # Symlink to nsxiv, copy as-is
+    ".config/user-dirs.dirs"
+    ".config/wal/postrun"
+    ".config/wal/templates/dunstrc"
+    ".config/wal/templates/zathurarc"
+    ".config/wget/wgetrc"
+    ".config/x11/xinitrc"
+    ".config/x11/xprofile"
+    ".config/x11/xresources"
+    ".config/zathura/zathurarc"
+    ".config/zsh/.zshrc"
+    ".gtkrc-2.0"  # Symlink, copy as-is
+    ".local/share/applications/file.desktop"
+    ".local/share/applications/img.desktop"
+    ".local/share/applications/mail.desktop"
+    ".local/share/applications/pdf.desktop"
+    ".local/share/applications/rss.desktop"
+    ".local/share/applications/text.desktop"
+    ".local/share/applications/torrent.desktop"
+    ".local/share/applications/video.desktop"
+    ".local/share/bg"  # Symlink, copy as-is
+    ".local/share/larbs/chars/emoji"
+    ".local/share/larbs/chars/font-awesome"
+    ".local/share/larbs/emoji"
+    ".local/share/larbs/getkeys/calcurse"
+    ".local/share/larbs/getkeys/mutt"
+    ".local/share/larbs/getkeys/ncmpcpp"
+    ".local/share/larbs/getkeys/newsboat"
+    ".local/share/larbs/getkeys/nsxiv"
+    ".local/share/larbs/getkeys/zathura"
+    ".local/share/larbs/ttymaps.kmap"
+    ".local/share/thiemeyer_road_to_samarkand.jpg"
+    ".local/share/default_latex/abnt.tex"
+    ".local/share/default_latex/default.tex"
+    ".local/share/default_latex/template2.tex"
+    ".xprofile"  # Symlink, copy as-is
+    ".zprofile"  # Symlink, copy as-is
+    # Add any of *your* extra custom files/dirs here that aren't in voidrice, e.g., ".config/myapp/config"
+)
+
+# List of patterns to exclude (sensitive or irrelevant; expand as needed for your setup)
+EXCLUDES=(
+    ".ssh"
+    ".gnupg"
+    ".password-store"
+    ".cache"
+    ".mozilla"
+    ".thunderbird"
+    ".config/google-chrome"
+    ".config/chromium"
+    ".config/BraveSoftware"
+    ".local/share/gnupg"
+    ".local/share/keyrings"
+    # Add more if needed, e.g., ".config/mpd/playlists" if it has personal data
+)
+
+# Function to check if a path matches any exclude pattern
+is_excluded() {
+    local path="$1"
+    for exclude in "${EXCLUDES[@]}"; do
+        if [[ "$path" == *"$exclude"* ]]; then
+            return 0  # Excluded
+        fi
+    done
+    return 1  # Not excluded
+}
+
+# Copy the includes, creating parent dirs as needed, skipping excludes
+for item in "${INCLUDES[@]}"; do
+    src="$HOME/$item"
+    dest="$DOTFILES_DIR/$item"
+    if [ -e "$src" ] && ! is_excluded "$src"; then
+        mkdir -p "$(dirname "$dest")"
+        cp -rP "$src" "$dest"  # -P preserves symlinks without dereferencing
+        echo "Copied: $item"
+    else
+        echo "Skipped (not found or excluded): $item"
+    fi
+done
+
+# Special handling for .local/bin: copy everything except askgemini.py
+BIN_SRC_DIR="$HOME/.local/bin"
+BIN_DEST_DIR="$DOTFILES_DIR/.local/bin"
+mkdir -p "$BIN_DEST_DIR"
+for file in "$BIN_SRC_DIR"/*; do
+    if [ -e "$file" ]; then  # Check if file exists (handles empty dir)
+        filename=$(basename "$file")
+        if [[ "$filename" != "askgemini.py" ]] && ! is_excluded "$file"; then
+            cp -rP "$file" "$BIN_DEST_DIR/$filename"
+            echo "Copied: .local/bin/$filename"
+        else
+            echo "Skipped (excluded): .local/bin/$filename"
+        fi
+    fi
+done
+
+echo "Dotfiles copied to $DOTFILES_DIR (mirroring voidrice structure with your custom versions)."
+echo "Review contents (e.g., tree -a $DOTFILES_DIR), remove/edit any sensitive info, then init Git: cd $DOTFILES_DIR && git init && git add . && git commit -m 'Initial commit'."

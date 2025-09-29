@@ -1,0 +1,74 @@
+% Custom Pandoc LaTeX Template based on Gustavo Magalhães's .tex file
+
+\documentclass{article}
+
+\usepackage[paper=a4paper, left=2cm, top=3cm, right=2cm, bottom=3cm]{geometry}
+
+\usepackage{amsmath}       % For math support
+
+\usepackage{titlesec}      % (Optional) For additional title/section formatting
+
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{csquotes}
+\usepackage{booktabs}
+
+\usepackage{float}
+
+\usepackage[american]{babel}  % Added for proper language handling with biblatex-apa
+
+\usepackage[backend=biber, style=apa]{biblatex}
+
+\addbibresource{/home/gustavo/.local/share/biblatex/uni.bib}
+
+% Set column separation rules (if needed; not twocolumn here)
+
+\renewcommand{\columnseprule}{0.4pt}
+
+\setlength{\columnsep}{20pt}
+
+$if(author)$
+
+  \author{$author$}
+
+$else$
+
+  \author{Gustavo Magalhães}
+
+$endif$
+
+$if(title)$
+
+  \title{$title$}
+
+$else$
+
+  \title{Physiology}
+
+$endif$
+
+$if(date)$
+
+  \date{$date$}
+
+$else$
+
+  \date{\today}
+
+$endif$
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\begin{document}
+
+\maketitle
+
+$body$
+
+\newpage
+
+\printbibliography
+
+\end{document}

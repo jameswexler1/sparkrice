@@ -1,0 +1,61 @@
+% Fully ABNT-compliant Pandoc LaTeX Template using abntex2 class
+
+\documentclass[article,oneside,12pt,a4paper]{abntex2}  % For theses: use [report] or [book]
+
+\usepackage{amsmath}       % Math support
+\usepackage{longtable}     % Long tables
+\usepackage{xcolor}
+\usepackage{csquotes}      % Quotes
+\usepackage{booktabs}      % Nice tables
+\usepackage{float}         % Floats
+\usepackage{hyperref}
+\usepackage[backend=biber, style=abnt]{biblatex}  % ABNT refs
+\addbibresource{/home/gustavo/.local/share/biblatex/uni.bib}
+
+% ABNT indent (already in abntex2, but ensure)
+\usepackage{indentfirst}
+
+% Pandoc variables
+$if(title)$
+  \titulo{$title$}
+$else$
+  \titulo{Physiology}
+$endif$
+
+$if(author)$
+  \autor{$author$}
+$else$
+  \autor{Gustavo Magalhães}
+$endif$
+
+$if(date)$
+  \data{$date$}
+$else$
+  \data{\today}
+$endif$
+
+% Abstract/Resumo from YAML (ABNT NBR 6028)
+$if(abstract)$
+  \begin{resumo}
+    $abstract$
+    \vspace{\onelineskip}
+    \noindent
+    \textbf{Palavras-chave}: $if(keywords)$$keywords$$else$keyword1, keyword2$endif$.
+  \end{resumo}
+$endif$
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\begin{document}
+
+% ABNT cover and title page (mandatory for compliance)
+\imprimircapa  % Cover
+% \imprimirfolhaderosto* % Title page (with asterisk for no approval)
+
+$body$
+
+% Bibliography (ABNT NBR 6023)
+\printbibliography[title=Referências]
+
+\end{document}

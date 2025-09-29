@@ -12,8 +12,13 @@ for DIR in "${TARGET_DIRS[@]}"; do
     # Send a notification indicating the start of the cleanup process
     notify-send "Latex Cleanup" "Cleaning LaTeX auxiliary files in $DIR..."
 
-    # Find and delete the .aux, .log, and .tex files
-    find "$DIR" -type f \( -name "*.aux" -o -name "*.log" -o -name "*.tex" \) -exec rm -f {} \;
+    # Find and delete expanded list of auxiliary files
+    find "$DIR" -type f \( \
+      -name "*.aux" -o -name "*.log" -o -name "*.tex" -o \
+      -name "*.bbl" -o -name "*.blg" -o -name "*.bcf" -o \
+      -name "*.run.xml" -o -name "*.out" -o -name "*.toc" -o \
+      -name "*.idx" -o -name "*.ind" -o -name "*.synctex.gz" \
+    \) -exec rm -f {} \;
 
     # Send a notification indicating the cleanup is completed
     notify-send "Latex Cleanup" "Cleanup completed in $DIR."
