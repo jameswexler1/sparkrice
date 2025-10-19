@@ -1,22 +1,65 @@
 #!/bin/bash
-# file_search.sh - Search and open files/folders using fuzzy dmenu (case-insensitive)
+# file_search_safe_v2.sh - Optimized interactive fuzzy search with relative paths
 
-# Search type prompt (already piped)
-search_type=$(printf "Files\nFolders\nBoth" | dmenu -i -p "Search for:")
-case "$search_type" in
-  Files) fd_opts="--type f" ;;
-  Folders) fd_opts="--type d" ;;
-  Both) fd_opts="--type f --type d" ;;
-  *) exit 1 ;;
-esac
+# Set IM modules to avoid hangs (retained as-is)
+export GTK_IM_MODULE=xim
+export QT_IM_MODULE=xim
+export XMODIFIERS=@im=none
 
-# Prompt for search pattern to pre-filter (now piped to avoid hang)
-pattern=$(echo "" | dmenu -i -p "Enter search pattern (empty for all):")
+# Run fd without max-depth or sort (fd excludes hidden by default). Add more excludes if specific dirs cause spikes.
+# Increase timeout if traversal ever exceeds 10s on your setup (rare with fd).
+selection=$(timeout 15 fd --type f --type d --exclude .cache --exclude Downloads --exclude node_modules --exclude .git . ~ | sed "s|^$HOME/||" | dmenu -f -i -l 15 -p "Search file/folder:")
 
-# Use fd to gather filtered list and feed to dmenu (handle empty pattern)
-if [ -z "$pattern" ]; then
-  selection=$(fd $fd_opts --max-depth 4 --max-results 2000 --ignore . ~ | dmenu -i -l 15 -p "Choose file/folder:")
-else
-  selection=$(fd $fd_opts --max-depth 4 --max-results 2000 --ignore "$pattern" ~ | dmenu -i -l 15 -p "Choose file/folder:")
+# Prepend $HOME back for opening
+selection="$HOME/$selection"
+
+if [ $? -eq 124 ]; then
+  echo "fd timed out—add more exclusions for large dirs."
+  exit 1
 fi
-[ -n "$selection" ] && xdg-open "$selection"
+
+if [ -n "$selection" ] && [ -e "$selection" ]; then
+  if [ -d "$selection" ]; then
+    xdg-open "$selection" || echo "Failed to open directory: $selection"
+  else
+    mime=$(file --mime-type -b "$selection")
+    case "$mime" in
+      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)
+        setsid -f localc "$selection" >/dev/null 2>&1 ;;
+      image/vnd.djvu|application/pdf|application/postscript|application/epub*)
+        setsid -f zathura "$selection" >/dev/null 2>&1 ;;
+      text/*|application/json|inode/x-empty|application/x-subrip)
+        st -e nvim "$selection" ;;
+      image/x-xcf)
+        setsid -f gimp "$selection" >/dev/null 2>&1 ;;
+      image/svg+xml)
+        display -- "$selection" ;;
+      image/*)
+        setsid -f nsxiv "$selection" >/dev/null 2>&1 ;;
+      audio/*|video/x-ms-asf)
+        setsid -f mpv --audio-display=no "$selection" >/dev/null 2>&1 ;;
+      video/*)
+        setsid -f mpv "$selection" >/dev/null 2>&1 ;;
+      application/pgp-encrypted)
+        st -e nvim "$selection" ;;
+      application/vnd.openxmlformats-officedocument.wordprocessingml.document|application/vnd.oasis.opendocument.text|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|application/vnd.oasis.opendocument.spreadsheet|application/vnd.oasis.opendocument.spreadsheet-template|application/vnd.openxmlformats-officedocument.presentationml.presentation|application/vnd.oasis.opendocument.presentation-template|application/vnd.oasis.opendocument.presentation|application/vnd.ms-powerpoint|application/vnd.oasis.opendocument.graphics|application/vnd.oasis.opendocument.graphics-template|application/vnd.oasis.opendocument.formula|application/vnd.oasis.opendocument.database)
+        setsid -f libreoffice "$selection" >/dev/null 2>&1 ;;
+      application/octet-stream)
+        ext="${selection##*.}"
+        case "$ext" in
+          doc|docx|xls|xlsx|odt|ppt|pptx)
+            setsid -f libreoffice "$selection" >/dev/null 2>&1 ;;
+          ghw)
+            setsid -f gtkwave "$selection" >/dev/null 2>&1 ;;
+          ts)
+            setsid -f mpv "$selection" >/dev/null 2>&1 ;;
+          *)
+            setsid -f zathura "$selection" >/dev/null 2>&1 ;;
+        esac ;;
+      *)
+        xdg-open "$selection" || echo "Failed to open: $selection (MIME: $mime)"
+    esac
+  fi
+else
+  echo "No valid selection or file not found."
+fi

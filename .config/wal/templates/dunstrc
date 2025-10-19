@@ -1,27 +1,92 @@
 [global]
     monitor = 0
-    follow = keyboard
-    width = 370
-    height = 350
-    offset = 0x19
-    padding = 2
-    horizontal_padding = 2
-    transparency = 25
-    font = Monospace 12
-    format = "<b>%s</b>\n%b"
+    follow = mouse
+    width = 300
+    height = 100
+    origin = top-right
+    offset = 10x20
+    scale = 0
+    notification_limit = 5
+    progress_bar = true
+    progress_bar_height = 12
+    progress_bar_frame_width = 1
+    progress_bar_min_width = 150
+    progress_bar_max_width = 300
+    progress_bar_corner_radius = 6
+    progress_bar_corners = all
+    indicate_hidden = true
+    shrink = false
+    separator_height = 2
+    padding = 12
+    horizontal_padding = 12
+    text_icon_padding = 10
+    frame_width = 2
+    frame_color = "{color8}"
+    separator_color = frame
+    sort = true
+    idle_threshold = 120
+    font = "Sans 10"
+    line_height = 4
+    markup = full
+    format = "<b>%s</b>\n%b %p"
+    alignment = left
+    vertical_alignment = center
+    show_age_threshold = 60
+    word_wrap = true
+    ellipsize = middle
+    ignore_newline = false
+    stack_duplicates = true
+    hide_duplicate_count = false
+    show_indicators = true
+    icon_position = left
+    min_icon_size = 32
+    max_icon_size = 64
+    enable_recursive_icon_lookup = true
+    sticky_history = true
+    history_length = 50
+    always_run_script = true
+    corner_radius = 12
+    ignore_dbusclose = false
+    mouse_left_click = close_current
+    mouse_middle_click = do_action
+    mouse_right_click = close_all
 
 [urgency_low]
-    background = "{color0}" # color0
-    foreground = "{color8}" # color8
-    timeout = 3
-
-[urgency_normal]
-    foreground = "{color15}" # color15
-    background = "{color4}" # color4
+    background = "{color0}cc"
+    foreground = "{color15}"
+    highlight = "{color4}"
     timeout = 5
 
-[urgency_critical]
-    background = "{color1}" # color1
-    foreground = "{color15}" # color15
-    frame_color = "{color11}" # color11
+[urgency_normal]
+    background = "{color0}cc"
+    foreground = "{color15}"
+    highlight = "{color2}"
     timeout = 10
+
+[urgency_critical]
+    background = "{color1}cc"
+    foreground = "{color15}"
+    frame_color = "#FF0000"
+    highlight = "{color3}"
+    timeout = 0
+
+[shortcuts]
+    close = ctrl+space
+    close_all = ctrl+shift+space
+    history = ctrl+grave
+    context = ctrl+shift+period
+
+[volume]
+    summary = "*volume*"
+    format = "%s: %p"
+    set_timeout = 2
+    new_icon = audio-volume-high
+
+[brightness]
+    summary = "*brightness*"
+    format = "%s: %p"
+    set_timeout = 2
+    new_icon = video-display
+[play_sound]
+    summary = "*"
+    script = ~/.local/bin/notification-play

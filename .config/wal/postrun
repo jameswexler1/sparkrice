@@ -30,3 +30,6 @@ fix_sequences() {
 fix_sequences <"${XDG_CACHE_HOME:-$HOME/.cache}/wal/sequences"
 
 pkill dunst; setsid -f dunst
+
+# Simulate Mod+F5 (refresh dwm colors)
+# pidof dwm >/dev/null && xdotool key super+F5
