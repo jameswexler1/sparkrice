@@ -42,6 +42,7 @@ INCLUDES=(
     ".config/wal/templates/dunstrc"
     ".config/wal/templates/zathurarc"
     ".config/wget/wgetrc"
+    ".config/picom/picom.conf"
     ".config/x11/xinitrc"
     ".config/x11/xprofile"
     ".config/x11/xresources"
@@ -73,7 +74,7 @@ INCLUDES=(
     ".local/share/default_latex/template2.tex"
     ".xprofile"  # Symlink, copy as-is
     ".zprofile"  # Symlink, copy as-is
-    # Add any of *your* extra custom files/dirs here that aren't in voidrice, e.g., ".config/myapp/config"
+    # Add any of *your* extra custom files/dirs here that aren't in sparkrice, e.g., ".config/myapp/config"
 )
 
 # List of patterns to exclude (sensitive or irrelevant; expand as needed for your setup)
@@ -132,5 +133,6 @@ for file in "$BIN_SRC_DIR"/*; do
     fi
 done
 
-echo "Dotfiles copied to $DOTFILES_DIR (mirroring voidrice structure with your custom versions)."
+echo "Dotfiles copied to $DOTFILES_DIR (mirroring sparkrice structure with your custom versions)."
 echo "Review contents (e.g., tree -a $DOTFILES_DIR), remove/edit any sensitive info, then init Git: cd $DOTFILES_DIR && git init && git add . && git commit -m 'Initial commit'."
+notify-send "Collector of Dotfiles" "Finished collecting. Check repo"
