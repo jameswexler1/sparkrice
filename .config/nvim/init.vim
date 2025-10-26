@@ -88,7 +88,7 @@ colorscheme vim
 	map <leader>c :w! \| !compiler "%:p"<CR>
 
 " Open corresponding .pdf/.html or preview
-	map <leader>p :!opout "%:p"<CR>
+	map <leader>p :!opout "%:p"<CR><CR>
 
 " Runs a script that cleans out tex build files whenever I close out of a .tex file.
 	autocmd VimLeave *.tex !latexmk -c %
@@ -167,6 +167,12 @@ function! CompileAndClean(...) abort
     let l:output_dir = expand("$HOME") . "/Documents/Notes"
   else
     let l:output_dir = l:file_dir
+  endif
+
+  " Create output directory if it doesn't exist
+  if !isdirectory(l:output_dir)
+    call mkdir(l:output_dir, 'p')
+    echom "Created output directory: " . l:output_dir
   endif
 
   " Template directory
@@ -288,7 +294,7 @@ function! CompileAndClean(...) abort
 endfunction
 
 " Mappings
-nnoremap <leader>p :call CompileAndClean('default', 0)<CR>  " Default template, no bib
+nnoremap <leader>1 :call CompileAndClean('default', 0)<CR>  " Default template, no bib
 nnoremap <leader>2 :call CompileAndClean('template2', 0)<CR>  " Template2, no bib
 nnoremap <leader>3 :call CompileAndClean()<CR>
 

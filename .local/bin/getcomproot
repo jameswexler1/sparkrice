@@ -5,5 +5,16 @@
 # % root = mainfile.tex
 # And the compiler script will run on that instead of the opened file.
 
+file=$(readlink -f "$1")
+dir=$(dirname "$file")
+
 texroot="$(sed -n 's/^\s*%.*root\s*=\s*\(\S\+\).*/\1/p' "${1}")"
-[ -f "${texroot}" ] && readlink -f "${texroot}" || exit "1"
+if [ -n "$texroot" ]; then
+  # Prepend dir if texroot is relative (doesn't start with /)
+  if [ "${texroot#/}" = "$texroot" ]; then
+    texroot="$dir/$texroot"
+  fi
+  [ -f "${texroot}" ] && readlink -f "${texroot}" && exit 0
+fi
+
+exit 1

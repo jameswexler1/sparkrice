@@ -6,8 +6,21 @@
 
 basename="${1%.*}"
 
-case "${*}" in
-	*.tex|*.sil|*.m[dse]|*.[rR]md|*.mom|*.[0-9]) target="$(getcomproot "$1" || echo "$1")" ; setsid -f xdg-open "${target%.*}".pdf >/dev/null 2>&1 ;;
+case "$1" in
+	*.tex|*.sil|*.mom|*.[0-9])
+		target="$(getcomproot "$1" || echo "$1")"
+		setsid -f zathura "${target%.*}".pdf >/dev/null 2>&1 ;;
+	*.m[dse]|*.[rR]md)
+		# Custom logic to match CompileAndClean's output_dir determination
+		base=$(basename "${1%.*}")
+		dir=$(dirname "$1")
+		vimwiki_dir="$HOME/.local/share/nvim/vimwiki"
+		if [ "${dir#"$vimwiki_dir"}" != "$dir" ]; then
+			output_dir="$HOME/Documents/Notes"
+		else
+			output_dir="$dir"
+		fi
+		setsid -f zathura "$output_dir/$base.pdf" >/dev/null 2>&1 ;;
 	*.html) setsid -f "$BROWSER" "$basename".html >/dev/null 2>&1 ;;
 	*.sent) setsid -f sent "$1" >/dev/null 2>&1 ;;
 esac
