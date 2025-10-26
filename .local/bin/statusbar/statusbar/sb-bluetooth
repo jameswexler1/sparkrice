@@ -1,0 +1,11 @@
+#!/bin/bash
+# bluetooth_status.sh
+
+# Check if Bluetooth is unblocked (i.e. on)
+if rfkill list bluetooth | grep -q "Soft blocked: no"; then
+    # Output your chosen Bluetooth icon (you can change this)
+    echo ""
+else
+    # Otherwise, output nothing
+    echo ""
+fi

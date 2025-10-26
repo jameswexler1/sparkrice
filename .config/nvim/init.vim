@@ -151,19 +151,77 @@ nnoremap <leader>h :call ToggleHiddenAll()<CR>
 
 " Custom command to compile notes into pdf with xelatex"
 
-function! CompileAndClean()
-  " Get the base name of the current file (without extension)
-  let l:base = expand('%:t:r')
+function! CompileAndClean(...) abort
+  " Arguments: template_name (string, optional), use_bib (0/1, optional)
+  let l:template_name = get(a:000, 0, '')
+  let l:use_bib = get(a:000, 1, -1)  " -1 means prompt
 
-  " Use the full path for the input file (handles spaces correctly)
+  " Get base name and input file
+  let l:base = expand('%:t:r')
   let l:input_file = shellescape(expand('%:p'))
 
-  " Define the output directory and .tex file path using $HOME
-  let l:output_dir = expand("$HOME") . "/Documents/Notes"
-  let l:tex_file = l:output_dir . "/" . l:base . ".tex"
+  " Determine output directory
+  let l:vimwiki_dir = expand("$HOME") . "/.local/share/nvim/vimwiki"
+  let l:file_dir = expand('%:p:h')
+  if stridx(l:file_dir, l:vimwiki_dir) == 0
+    let l:output_dir = expand("$HOME") . "/Documents/Notes"
+  else
+    let l:output_dir = l:file_dir
+  endif
 
-  " Build the pandoc command
-  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=$HOME/.local/share/default_latex/default.tex"
+  " Template directory
+  let l:template_dir = expand("$HOME") . "/.local/share/default_latex"
+  let l:templates = glob(l:template_dir . '/*.tex', 0, 1)
+
+  if empty(l:templates)
+    echom "No .tex templates found in " . l:template_dir
+    return
+  endif
+
+  " Extract basenames for selection (e.g., 'default', 'template2')
+  let l:template_basenames = map(copy(l:templates), 'fnamemodify(v:val, ":t:r")')
+
+  " Prompt for template if not provided
+  if empty(l:template_name)
+    let l:choices = ['Select template:']
+    for i in range(len(l:template_basenames))
+      call add(l:choices, printf('%d: %s', i+1, l:template_basenames[i]))
+    endfor
+    let l:selection = inputlist(l:choices)
+    if l:selection < 1 || l:selection > len(l:template_basenames)
+      echom "Invalid selection. Aborting."
+      return
+    endif
+    let l:template_name = l:template_basenames[l:selection - 1]
+  endif
+
+  let l:template_path = l:template_dir . '/' . l:template_name . '.tex'
+  if !filereadable(l:template_path)
+    echom "Template not found: " . l:template_path
+    return
+  endif
+
+  " Check for accompanying Lua filter
+  let l:filter_path = l:template_dir . '/' . l:template_name . '.lua'
+  let l:filter_cmd = ''
+  if filereadable(l:filter_path)
+    let l:filter_cmd = ' --lua-filter=' . shellescape(l:filter_path)
+  endif
+
+  " Prompt for bibliography if not specified
+  if l:use_bib == -1
+    let l:bib_choice = confirm("Include bibliography?", "&Yes\n&No", 2)
+    let l:use_bib = (l:bib_choice == 1 ? 1 : 0)
+  endif
+
+  " .tex file path
+  let l:tex_file = l:output_dir . '/' . l:base . '.tex'
+
+  " Build pandoc command
+  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=" . shellescape(l:template_path) . l:filter_cmd
+  if l:use_bib
+    let l:pandoc_cmd .= " --bibliography=$HOME/.local/share/biblatex/uni.bib --biblatex"
+  endif
   echom "Running pandoc: " . l:pandoc_cmd
   let l:pandoc_result = system(l:pandoc_cmd)
   if v:shell_error
@@ -171,313 +229,68 @@ function! CompileAndClean()
     return
   endif
 
-  " Build the xelatex command with -interaction=nonstopmode and specify the output directory
-  let l:xelatex_cmd = "xelatex -interaction=nonstopmode -output-directory=" . shellescape(l:output_dir) . " " . shellescape(l:tex_file)
-  echom "Running xelatex: " . l:xelatex_cmd
-  let l:xelatex_result = system(l:xelatex_cmd)
-  if v:shell_error
-    echom "xelatex failed with error: " . l:xelatex_result
-    return
-  endif
-
-  " Cleanup: Remove the .tex file if it exists
-  if filereadable(l:tex_file)
-      let l:rm_tex_cmd = "rm -fv " . shellescape(l:tex_file)
-      echom "Removing .tex file with: " . l:rm_tex_cmd
-      call system(l:rm_tex_cmd)
-  else
-      echom ".tex file not found: " . l:tex_file
-  endif
-
-  " Remove the .aux file if it exists
-  let l:aux_file = l:output_dir . "/" . l:base . ".aux"
-  if filereadable(l:aux_file)
-      let l:rm_aux_cmd = "rm -fv " . shellescape(l:aux_file)
-      echom "Removing .aux file with: " . l:rm_aux_cmd
-      call system(l:rm_aux_cmd)
-  else
-      echom ".aux file not found: " . l:aux_file
-  endif
-
-  " Remove the .log file if it exists
-  let l:log_file = l:output_dir . "/" . l:base . ".log"
-  if filereadable(l:log_file)
-      let l:rm_log_cmd = "rm -fv " . shellescape(l:log_file)
-      echom "Removing .log file with: " . l:rm_log_cmd
-      call system(l:rm_log_cmd)
-  else
-      echom ".log file not found: " . l:log_file
-  endif
-
-  echom "Compilation complete. Check the generated PDF at " . l:output_dir . "/" . l:base . ".pdf"
-
-  " Run the cleaner shell script after the compilation process
-  let l:shell_script = "$HOME/.local/bin/cleaner"
-  echom "Running shell script: " . l:shell_script
-  let l:script_result = system(l:shell_script)
-  if v:shell_error
-    echom "Shell script failed with error: " . l:script_result
-    return
-  endif
-endfunction
-
-nnoremap <leader>p :call CompileAndClean()<CR>
-" Map ,p in normal mode to build the PDF from the current Vimwiki note
-"nnoremap <silent> ,p :call BuildVimwikiPDF()<CR>
-
-" Copy of the command for compilation with latex, but using a second template
-
-
-
-function! CompileAndCleanTemplate2()
-  " Get the base name of the current file (without extension)
-  let l:base = expand('%:t:r')
-
-  " Use the full path for the input file (handles spaces correctly)
-  let l:input_file = shellescape(expand('%:p'))
-
-  " Define the output directory and .tex file path using $HOME
-  let l:output_dir = expand("$HOME") . "/Documents/Notes"
-  let l:tex_file = l:output_dir . "/" . l:base . ".tex"
-
-  " Build the pandoc command
-  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=$HOME/.local/share/default_latex/template2.tex"
-  echom "Running pandoc: " . l:pandoc_cmd
-  let l:pandoc_result = system(l:pandoc_cmd)
-  if v:shell_error
-    echom "Pandoc failed with error: " . l:pandoc_result
-    return
-  endif
-
-  " Build the xelatex command with -interaction=nonstopmode and specify the output directory
-  let l:xelatex_cmd = "xelatex -interaction=nonstopmode -output-directory=" . shellescape(l:output_dir) . " " . shellescape(l:tex_file)
-  echom "Running xelatex: " . l:xelatex_cmd
-  let l:xelatex_result = system(l:xelatex_cmd)
-  if v:shell_error
-    echom "xelatex failed with error: " . l:xelatex_result
-    return
-  endif
-
-  " Cleanup: Remove the .tex file if it exists
-  if filereadable(l:tex_file)
-      let l:rm_tex_cmd = "rm -fv " . shellescape(l:tex_file)
-      echom "Removing .tex file with: " . l:rm_tex_cmd
-      call system(l:rm_tex_cmd)
-  else
-      echom ".tex file not found: " . l:tex_file
-  endif
-
-  " Remove the .aux file if it exists
-  let l:aux_file = l:output_dir . "/" . l:base . ".aux"
-  if filereadable(l:aux_file)
-      let l:rm_aux_cmd = "rm -fv " . shellescape(l:aux_file)
-      echom "Removing .aux file with: " . l:rm_aux_cmd
-      call system(l:rm_aux_cmd)
-  else
-      echom ".aux file not found: " . l:aux_file
-  endif
-
-  " Remove the .log file if it exists
-  let l:log_file = l:output_dir . "/" . l:base . ".log"
-  if filereadable(l:log_file)
-      let l:rm_log_cmd = "rm -fv " . shellescape(l:log_file)
-      echom "Removing .log file with: " . l:rm_log_cmd
-      call system(l:rm_log_cmd)
-  else
-      echom ".log file not found: " . l:log_file
-  endif
-
-  echom "Compilation complete. Check the generated PDF at " . l:output_dir . "/" . l:base . ".pdf"
-
-  " Run the cleaner shell script after the compilation process
-  let l:shell_script = "$HOME/.local/bin/cleaner"
-  echom "Running shell script: " . l:shell_script
-  let l:script_result = system(l:shell_script)
-  if v:shell_error
-    echom "Shell script failed with error: " . l:script_result
-    return
-  endif
-endfunction
-
-nnoremap <leader>2 :call CompileAndCleanTemplate2()<CR>
-
-
-" Compile and clean TRESSS
-
-function! CompileAndCleanWithBib()
-  " Get the base name of the current file (without extension)
-  let l:base = expand('%:t:r')
-
-  " Use the full path for the input file (handles spaces correctly)
-  let l:input_file = shellescape(expand('%:p'))
-
-  " Define the output directory using $HOME
-  let l:output_dir = expand("$HOME") . "/Documents/Notes"
-
-  " Prompt for template choice
-  let l:template_choice = input("Which template? (1 for default, 2 for template2, 3 for ABNT): ")
-  if l:template_choice == '1'
-    let l:template_path = "$HOME/.local/share/default_latex/default.tex"
-  elseif l:template_choice == '2'
-    let l:template_path = "$HOME/.local/share/default_latex/template2.tex"
-  elseif l:template_choice == '3'
-    let l:template_path = "$HOME/.local/share/default_latex/abnt.tex"
-  else
-    echom "Invalid template choice. Please enter 1, 2, or 3."
-    return
-  endif
-
-  " Define the .tex file path
-  let l:tex_file = l:output_dir . "/" . l:base . ".tex"
-
-  " Build the pandoc command with bibliography and biblatex flag
-  let l:pandoc_cmd = "pandoc -s " . l:input_file . " -o " . shellescape(l:tex_file) . " --template=" . l:template_path . " --bibliography=$HOME/.local/share/biblatex/uni.bib --biblatex"
-  echom "Running pandoc: " . l:pandoc_cmd
-  let l:pandoc_result = system(l:pandoc_cmd)
-  if v:shell_error
-    echom "Pandoc failed with error code: " . v:shell_error
-    echom "Pandoc output: " . l:pandoc_result
-    return
-  else
-    echom "Pandoc completed successfully."
-  endif
-
-  " Change to output directory for compilation
+  " Change to output dir for compilation
   let l:old_dir = getcwd()
   execute 'lcd ' . fnameescape(l:output_dir)
 
-  " First xelatex run
-  let l:xelatex1_cmd = "xelatex -interaction=nonstopmode " . shellescape(l:base . ".tex")
-  echom "Running first xelatex: " . l:xelatex1_cmd
-  let l:xelatex1_result = system(l:xelatex1_cmd)
+  " XeLaTeX runs (extra for bib)
+  let l:xelatex_cmd = "xelatex -interaction=nonstopmode " . shellescape(l:base . '.tex')
+  echom "Running first xelatex: " . l:xelatex_cmd
+  let l:xelatex_result = system(l:xelatex_cmd)
   if v:shell_error
-    echom "First xelatex failed with error code: " . v:shell_error
-    echom "First xelatex output: " . l:xelatex1_result
+    echom "First xelatex failed: " . l:xelatex_result
     execute 'lcd ' . fnameescape(l:old_dir)
     return
-  else
-    echom "First xelatex completed successfully."
   endif
 
-  " Biber run
-  let l:biber_cmd = "biber " . shellescape(l:base)
-  echom "Running biber: " . l:biber_cmd
-  let l:biber_result = system(l:biber_cmd)
-  if v:shell_error
-    echom "Biber failed with error code: " . v:shell_error
-    echom "Biber output: " . l:biber_result
-    execute 'lcd ' . fnameescape(l:old_dir)
-    return
-  else
-    echom "Biber completed successfully."
+  if l:use_bib
+    " Biber
+    let l:biber_cmd = "biber " . shellescape(l:base)
+    echom "Running biber: " . l:biber_cmd
+    let l:biber_result = system(l:biber_cmd)
+    if v:shell_error
+      echom "Biber failed: " . l:biber_result
+      execute 'lcd ' . fnameescape(l:old_dir)
+      return
+    endif
+
+    " Second XeLaTeX
+    echom "Running second xelatex: " . l:xelatex_cmd
+    let l:xelatex_result = system(l:xelatex_cmd)
+    if v:shell_error
+      echom "Second xelatex failed: " . l:xelatex_result
+      execute 'lcd ' . fnameescape(l:old_dir)
+      return
+    endif
+
+    " Third XeLaTeX (for final refs/toc)
+    echom "Running third xelatex: " . l:xelatex_cmd
+    let l:xelatex_result = system(l:xelatex_cmd)
+    if v:shell_error
+      echom "Third xelatex failed: " . l:xelatex_result
+      execute 'lcd ' . fnameescape(l:old_dir)
+      return
+    endif
   endif
 
-  " Second xelatex run
-  let l:xelatex2_cmd = "xelatex -interaction=nonstopmode " . shellescape(l:base . ".tex")
-  echom "Running second xelatex: " . l:xelatex2_cmd
-  let l:xelatex2_result = system(l:xelatex2_cmd)
-  if v:shell_error
-    echom "Second xelatex failed with error code: " . v:shell_error
-    echom "Second xelatex output: " . l:xelatex2_result
-    execute 'lcd ' . fnameescape(l:old_dir)
-    return
-  else
-    echom "Second xelatex completed successfully."
-  endif
-
-  " Third xelatex run
-  let l:xelatex3_cmd = "xelatex -interaction=nonstopmode " . shellescape(l:base . ".tex")
-  echom "Running third xelatex: " . l:xelatex3_cmd
-  let l:xelatex3_result = system(l:xelatex3_cmd)
-  if v:shell_error
-    echom "Third xelatex failed with error code: " . v:shell_error
-    echom "Third xelatex output: " . l:xelatex3_result
-    execute 'lcd ' . fnameescape(l:old_dir)
-    return
-  else
-    echom "Third xelatex completed successfully."
-  endif
-
-  " Restore original directory
+  " Restore directory
   execute 'lcd ' . fnameescape(l:old_dir)
 
-  " Cleanup: Remove the .tex file if it exists
-  if filereadable(l:tex_file)
-    let l:rm_tex_cmd = "rm -fv " . shellescape(l:tex_file)
-    echom "Removing .tex file with: " . l:rm_tex_cmd
-    call system(l:rm_tex_cmd)
-  else
-    echom ".tex file not found: " . l:tex_file
-  endif
+  echom "Compilation complete. Check PDF at " . l:output_dir . '/' . l:base . '.pdf'
 
-  " Remove the .aux file if it exists
-  let l:aux_file = l:output_dir . "/" . l:base . ".aux"
-  if filereadable(l:aux_file)
-    let l:rm_aux_cmd = "rm -fv " . shellescape(l:aux_file)
-    echom "Removing .aux file with: " . l:rm_aux_cmd
-    call system(l:rm_aux_cmd)
-  else
-    echom ".aux file not found: " . l:aux_file
-  endif
-
-  " Remove the .log file if it exists
-  let l:log_file = l:output_dir . "/" . l:base . ".log"
-  if filereadable(l:log_file)
-    let l:rm_log_cmd = "rm -fv " . shellescape(l:log_file)
-    echom "Removing .log file with: " . l:rm_log_cmd
-    call system(l:rm_log_cmd)
-  else
-    echom ".log file not found: " . l:log_file
-  endif
-
-  " Remove bibliography-related files if they exist
-  let l:bbl_file = l:output_dir . "/" . l:base . ".bbl"
-  if filereadable(l:bbl_file)
-    let l:rm_bbl_cmd = "rm -fv " . shellescape(l:bbl_file)
-    echom "Removing .bbl file with: " . l:rm_bbl_cmd
-    call system(l:rm_bbl_cmd)
-  else
-    echom ".bbl file not found: " . l:bbl_file
-  endif
-
-  let l:bcf_file = l:output_dir . "/" . l:base . ".bcf"
-  if filereadable(l:bcf_file)
-    let l:rm_bcf_cmd = "rm -fv " . shellescape(l:bcf_file)
-    echom "Removing .bcf file with: " . l:rm_bcf_cmd
-    call system(l:rm_bcf_cmd)
-  else
-    echom ".bcf file not found: " . l:bcf_file
-  endif
-
-  let l:blg_file = l:output_dir . "/" . l:base . ".blg"
-  if filereadable(l:blg_file)
-    let l:rm_blg_cmd = "rm -fv " . shellescape(l:blg_file)
-    echom "Removing .blg file with: " . l:rm_blg_cmd
-    call system(l:rm_blg_cmd)
-  else
-    echom ".blg file not found: " . l:blg_file
-  endif
-
-  echom "Compilation complete. Check the generated PDF at " . l:output_dir . "/" . l:base . ".pdf"
-
-  " Run the cleaner shell script after the compilation process
-  let l:shell_script = "$HOME/.local/bin/cleaner"
+  " Run cleaner script with arguments
+  let l:shell_script = "$HOME/.local/bin/cleaner " . shellescape(l:output_dir) . " " . shellescape(l:base)
   echom "Running shell script: " . l:shell_script
   let l:script_result = system(l:shell_script)
   if v:shell_error
-    echom "Shell script failed with error code: " . v:shell_error
-    echom "Shell script output: " . l:script_result
-    return
-  else
-    echom "Shell script completed successfully."
+    echom "Shell script failed: " . l:script_result
   endif
 endfunction
 
-nnoremap <leader>3 :call CompileAndCleanWithBib()<CR>
-
-
-
-
+" Mappings
+nnoremap <leader>p :call CompileAndClean('default', 0)<CR>  " Default template, no bib
+nnoremap <leader>2 :call CompileAndClean('template2', 0)<CR>  " Template2, no bib
+nnoremap <leader>3 :call CompileAndClean()<CR>
 
 
 
