@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Shell script to select transcription file with dmenu, organize into dated folder, and run summarizer
+
+# Set directories
+TRANS_DIR="$HOME/Documents/Transcriptions"
+
+# Get today's date in YYYY-MM-DD format
+TODAY=$(date +%Y-%m-%d)
+
+# Create today's folder if it doesn't exist
+TODAY_FOLDER="$TRANS_DIR/$TODAY"
+mkdir -p "$TODAY_FOLDER"
+
+# Find all .txt and .md files in home directory (adjust path if needed, e.g., to a specific dir)
+# Pipe to dmenu for selection (-i for case-insensitive, -l 20 for lines displayed)
+SELECTED_FILE=$(find "$HOME" -type f \( -name "*.txt" -o -name "*.md" \) 2>/dev/null | dmenu -i -l 20 -p "Select transcription file:")
+
+# If a file was selected
+if [ -n "$SELECTED_FILE" ] && [ -f "$SELECTED_FILE" ]; then
+    notify-send "Transcription Summarizer" "File selected: $(basename "$SELECTED_FILE")"
+
+    # Move the file to today's folder
+    mv "$SELECTED_FILE" "$TODAY_FOLDER/"
+    notify-send "Transcription Summarizer" "File moved to $TODAY_FOLDER"
+
+    # Get the new path of the moved file
+    MOVED_FILE="$TODAY_FOLDER/$(basename "$SELECTED_FILE")"
+
+    # Run the Python script with the moved file as argument
+    notify-send "Transcription Summarizer" "Starting summarization..."
+    python3 $HOME/.local/bin/summarizer.py "$MOVED_FILE"
+
+    # Check if Python succeeded (based on exit code)
+    if [ $? -eq 0 ]; then
+        notify-send "Transcription Summarizer" "Summarization complete! Check $TODAY_FOLDER/lecture_summary.md"
+    else
+        notify-send "Transcription Summarizer" "Error during summarization. Check terminal for details."
+    fi
+else
+    notify-send "Transcription Summarizer" "No file selected or file does not exist."
+    echo "No file selected or file does not exist."
+fi

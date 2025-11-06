@@ -1,0 +1,48 @@
+\documentclass[12pt]{article}
+
+$if(lang)$
+\RequirePackage[$lang$]{babel}
+$endif$
+
+% --- Packages ---
+\usepackage[margin=1in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{datetime2}
+
+\setlength{\headheight}{14.5pt}
+
+% --- Header and Footer Setup ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{$title$}
+\fancyhead[R]{\DTMnow}
+\fancyfoot[C]{\thepage}
+
+% --- Custom Section Formatting ---
+\titleformat{\section}
+  {\large\bfseries}
+  {}
+  {0em}
+  {}
+
+\titlespacing*{\section}
+  {0pt}
+  {0pt}
+  {0pt}
+
+\begin{document}
+
+\begin{center}
+$if(title)$
+  {\huge \textbf{$title$}}\\[1ex]
+$endif$
+$if(year)$
+  {\Large $year$}\\[2ex]
+$endif$
+\end{center}
+\vspace{2em}
+
+$body$
+
+\end{document}

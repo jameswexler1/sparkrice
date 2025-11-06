@@ -1,9 +1,7 @@
 #!/bin/bash
-
 # Define the target directory for your dotfiles repo
 DOTFILES_DIR="$HOME/Work/GITHUB/sparkrice"
 mkdir -p "$DOTFILES_DIR"
-
 # List of exact files/directories to include, based on voidrice tree (excluding repo metadata)
 # Removed ".local/bin/*" to handle it specially below
 INCLUDES=(
@@ -36,7 +34,7 @@ INCLUDES=(
     ".config/shell/bm-files"
     ".config/shell/inputrc"
     ".config/shell/profile"
-    ".config/sxiv"  # Symlink to nsxiv, copy as-is
+    ".config/sxiv" # Symlink to nsxiv, copy as-is
     ".config/user-dirs.dirs"
     ".config/wal/postrun"
     ".config/wal/templates/dunstrc"
@@ -48,7 +46,7 @@ INCLUDES=(
     ".config/x11/xresources"
     ".config/zathura/zathurarc"
     ".config/zsh/.zshrc"
-    ".gtkrc-2.0"  # Symlink, copy as-is
+    ".gtkrc-2.0" # Symlink, copy as-is
     ".local/share/applications/file.desktop"
     ".local/share/applications/img.desktop"
     ".local/share/applications/mail.desktop"
@@ -57,7 +55,7 @@ INCLUDES=(
     ".local/share/applications/text.desktop"
     ".local/share/applications/torrent.desktop"
     ".local/share/applications/video.desktop"
-    ".local/share/bg"  # Symlink, copy as-is
+    ".local/share/bg" # Symlink, copy as-is
     ".local/share/larbs/chars/emoji"
     ".local/share/larbs/chars/font-awesome"
     ".local/share/larbs/emoji"
@@ -72,11 +70,13 @@ INCLUDES=(
     ".local/share/default_latex/abnt.tex"
     ".local/share/default_latex/default.tex"
     ".local/share/default_latex/template2.tex"
-    ".xprofile"  # Symlink, copy as-is
-    ".zprofile"  # Symlink, copy as-is
+    ".local/share/default_latex/diary.tex"
+    ".local/share/default_latex/diary.lua"
+    ".local/share/default_latex/vancouver.tex"
+    ".xprofile" # Symlink, copy as-is
+    ".zprofile" # Symlink, copy as-is
     # Add any of *your* extra custom files/dirs here that aren't in sparkrice, e.g., ".config/myapp/config"
 )
-
 # List of patterns to exclude (sensitive or irrelevant; expand as needed for your setup)
 EXCLUDES=(
     ".ssh"
@@ -89,42 +89,41 @@ EXCLUDES=(
     ".config/chromium"
     ".config/BraveSoftware"
     ".local/share/gnupg"
+    ".local/bin/fone.sh"
     ".local/share/keyrings"
     # Add more if needed, e.g., ".config/mpd/playlists" if it has personal data
 )
-
 # Function to check if a path matches any exclude pattern
 is_excluded() {
     local path="$1"
     for exclude in "${EXCLUDES[@]}"; do
         if [[ "$path" == *"$exclude"* ]]; then
-            return 0  # Excluded
+            return 0 # Excluded
         fi
     done
-    return 1  # Not excluded
+    return 1 # Not excluded
 }
-
 # Copy the includes, creating parent dirs as needed, skipping excludes
 for item in "${INCLUDES[@]}"; do
     src="$HOME/$item"
     dest="$DOTFILES_DIR/$item"
     if [ -e "$src" ] && ! is_excluded "$src"; then
         mkdir -p "$(dirname "$dest")"
-        cp -rP "$src" "$dest"  # -P preserves symlinks without dereferencing
+        cp -rP "$src" "$dest" # -P preserves symlinks without dereferencing
         echo "Copied: $item"
     else
         echo "Skipped (not found or excluded): $item"
     fi
 done
-
-# Special handling for .local/bin: copy everything except askgemini.py
+# Special handling for .local/bin: copy everything except specified excludes
 BIN_SRC_DIR="$HOME/.local/bin"
 BIN_DEST_DIR="$DOTFILES_DIR/.local/bin"
 mkdir -p "$BIN_DEST_DIR"
+BIN_EXCLUDES=("askgemini.py" "summarizer.py")  # Add more as needed
 for file in "$BIN_SRC_DIR"/*; do
-    if [ -e "$file" ]; then  # Check if file exists (handles empty dir)
+    if [ -e "$file" ]; then # Check if file exists (handles empty dir)
         filename=$(basename "$file")
-        if [[ "$filename" != "askgemini.py" ]] && ! is_excluded "$file"; then
+        if [[ ! " ${BIN_EXCLUDES[*]} " =~ " ${filename} " ]] && ! is_excluded "$file"; then
             cp -rP "$file" "$BIN_DEST_DIR/$filename"
             echo "Copied: .local/bin/$filename"
         else
@@ -132,7 +131,6 @@ for file in "$BIN_SRC_DIR"/*; do
         fi
     fi
 done
-
 echo "Dotfiles copied to $DOTFILES_DIR (mirroring sparkrice structure with your custom versions)."
 echo "Review contents (e.g., tree -a $DOTFILES_DIR), remove/edit any sensitive info, then init Git: cd $DOTFILES_DIR && git init && git add . && git commit -m 'Initial commit'."
 notify-send "Collector of Dotfiles" "Finished collecting. Check repo"

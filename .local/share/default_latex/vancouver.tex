@@ -1,0 +1,65 @@
+
+\documentclass[11pt]{article}
+
+% XeLaTeX font setup
+\usepackage{fontspec}
+\setmainfont{TeX Gyre Termes}  % Free alternative to Times New Roman
+\setsansfont{Arial}
+\setmonofont{Courier New}
+
+% Language support
+$if(lang)$
+  \usepackage{polyglossia}
+  \setmainlanguage{$lang$}
+$endif$
+
+% Geometry for standard medical paper margins
+\usepackage[margin=1in]{geometry}
+
+% Other useful packages for medical content (tables, figures, etc.)
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{float}  % For figure placement
+
+% Bibliography setup (Vancouver style)
+$if(biblatex)$
+  \usepackage[backend=biber,style=vancouver]{biblatex}
+$endif$
+
+% Title, author, date
+$if(title)$
+  \title{$title$$if(subtitle)$\\ \vspace{0.5em}{\large $subtitle$}$endif$}
+$endif$
+$if(author)$
+  \author{$for(author)$$author$$sep$ \and $endfor$}
+$endif$
+$if(date)$
+  \date{$date$}
+$endif$
+
+\begin{document}
+
+\maketitle
+
+% Abstract (common in medical papers)
+$if(abstract)$
+  \begin{abstract}
+    $abstract$
+  \end{abstract}
+$endif$
+
+% Keywords if provided in YAML
+$if(keywords)$
+  \paragraph{Keywords:} $for(keywords)$$keywords$$sep$; $endfor$
+$endif$
+
+% Main body from Markdown
+$body$
+
+% Bibliography
+$if(biblatex)$
+  \printbibliography[title=References]
+$endif$
+
+\end{document}

@@ -1,14 +1,20 @@
 #!/bin/bash
 
-# Ask which folder
-folder_selection=$(printf "Home\nDownloads" | dmenu -p "Choose target folder:")
+# Define folders as associative array
+declare -A folders=(
+    ["Home"]="$HOME"
+    ["Downloads"]="$HOME/Downloads"
+    ["MUSICDAT"]="$HOME/Documents/MUSICDAT"
+    # Add more here in the future, e.g., ["Videos"]="$HOME/Videos"
+)
+
+# Ask which folder (dynamically from array keys)
+folder_selection=$(printf "%s\n" "${!folders[@]}" | dmenu -p "Choose target folder:")
 [ -z "$folder_selection" ] && notify-send "No folder chosen. Exiting." && exit 1
 
-case "$folder_selection" in
-    Home) folder_path="$HOME" ;;
-    Downloads) folder_path="$HOME/Downloads" ;;
-    *) notify-send "Invalid folder. Exiting." ; exit 1 ;;
-esac
+# Get folder path or exit if invalid
+folder_path="${folders[$folder_selection]}"
+[ -z "$folder_path" ] && notify-send "Invalid folder. Exiting." && exit 1
 
 # Build file list
 file_list=("All files")
@@ -35,15 +41,12 @@ shopt -s nullglob
 any_failed=0
 for file in "${files_to_process[@]}"; do
     echo "Processing: $file"
-
     temp="${file}.tmp.mp4"
-
     ffmpeg -y -i "$file" \
         -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2:(ow-iw)/2:(oh-ih)/2:black" \
         -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p \
         -c:a aac -movflags +faststart \
         "$temp"
-
     if [ $? -eq 0 ]; then
         mv "$temp" "$file"
         echo "Overwritten: $file"

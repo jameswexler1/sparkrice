@@ -1,6 +1,6 @@
 #!/bin/sh
 
-BIB_FILE="${HOME}/latex/uni.bib"
+BIB_FILE="${HOME}/.local/share/biblatex/uni.bib"
 [ -f "${BIB_FILE}" ] || BIB_FILE="${2:-$(find "${HOME}" -path "${HOME}/.*" \
 	-prune -o -type "f" -name "*.bib" -print -quit)}"
 
