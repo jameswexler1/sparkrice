@@ -1,51 +1,180 @@
 #!/bin/bash
 
-# Define the MAC address of your Bluetooth earbuds
-MAC_ADDRESS="F0:AE:66:D3:56:FF"  # Replace this with your earbuds' MAC address
+# Primary earbuds MAC (hardcoded for quick primary connect)
+PRIMARY_MAC="F0:AE:66:D3:56:FF"
+PRIMARY_NAME="Earbuds"  # For notifications; customize if needed
 
-# Log the time and state for debugging purposes
-echo "$(date) - Checking Bluetooth status..." >> /tmp/bluetooth_log.txt
+# Log file
+LOG_FILE="/tmp/bluetooth_log.txt"
 
-# Check if Bluetooth is blocked using rfkill
-if rfkill list bluetooth | grep -q "Soft blocked: no"; then
-    # If Bluetooth is not blocked, block it
-    echo "$(date) - Blocking Bluetooth..." >> /tmp/bluetooth_log.txt
+# Function to log messages
+log() {
+    echo "$(date) - $1" >> "$LOG_FILE"
+}
+
+# Function to turn off Bluetooth cleanly
+turn_off_bluetooth() {
+    log "Turning off Bluetooth."
+    notify-send "Bluetooth" "Turning off..."
+    bluetoothctl power off
     rfkill block bluetooth
-    systemctl --user stop bluetooth
-    notify-send "Bluetooth" "Bluetooth turned off"
+}
+
+# Optional MAC override from argument (for non-interactive use with other devices)
+OVERRIDE_MAC="$1"
+
+# Ensure Bluetooth service is running (adjust to user-level if needed)
+if ! systemctl is-active --quiet bluetooth; then
+    log "Starting Bluetooth service..."
+    sudo systemctl start bluetooth  # Remove sudo if user-level
+fi
+
+# Check state using rfkill (as in original script for reliability)
+if rfkill list bluetooth | grep -q "Soft blocked: no"; then
+    # Bluetooth is not blocked (on); turn off
+    turn_off_bluetooth
 else
-    # If Bluetooth is blocked, unblock it
-    echo "$(date) - Unblocking Bluetooth..." >> /tmp/bluetooth_log.txt
+    # Bluetooth is blocked (off); turn on
+    log "Unblocking and powering on Bluetooth..."
     rfkill unblock bluetooth
-    systemctl --user start bluetooth
-    notify-send "Bluetooth" "Bluetooth turned on"
+    bluetoothctl power on
 
-    # Wait for Bluetooth to initialize
-    echo "$(date) - Waiting for Bluetooth to initialize..." >> /tmp/bluetooth_log.txt
-    sleep 5
+    # Poll for power on
+    for i in {1..10}; do
+        if bluetoothctl show | grep -q "Powered: yes"; then
+            break
+        fi
+        sleep 1
+    done
 
-    # Connect to the Bluetooth device using bluetoothctl
-    echo "$(date) - Attempting to connect to earbuds..." >> /tmp/bluetooth_log.txt
-    bluetoothctl << EOF
-    power on
-    agent on
-    default-agent
-    connect $MAC_ADDRESS
-EOF
+    if ! bluetoothctl show | grep -q "Powered: yes"; then
+        notify-send "Bluetooth" "Failed to power on."
+        log "Failed to power on Bluetooth."
+        exit 1
+    fi
 
-    # Wait a second to let connection settle
-    sleep 2
+    notify-send "Bluetooth" "Bluetooth turned on."
 
-    # Check if device is connected
-    CONNECTION_STATUS=$(bluetoothctl info $MAC_ADDRESS | grep "Connected: yes")
+    # Set agent
+    bluetoothctl agent on
+    bluetoothctl default-agent
 
-    if [ -n "$CONNECTION_STATUS" ]; then
-        notify-send "Bluetooth" "Successfully connected to earbuds."
-        echo "$(date) - Successfully connected to earbuds." >> /tmp/bluetooth_log.txt
+    # Initialize flags
+    MAC_ADDRESS=""
+    CONNECTED=false
+
+    # If override MAC provided, use it instead of primary logic
+    if [ -n "$OVERRIDE_MAC" ]; then
+        MAC_ADDRESS="$OVERRIDE_MAC"
+        log "Using override MAC: $MAC_ADDRESS"
     else
-        notify-send "Bluetooth" "Failed to connect to earbuds."
-        echo "$(date) - Failed to connect to earbuds." >> /tmp/bluetooth_log.txt
+        # Attempt primary (earbuds) connect
+        notify-send "Bluetooth" "Attempting to connect to $PRIMARY_NAME..."
+        log "Attempting primary connect to $PRIMARY_MAC"
+        CONNECT_OUTPUT=$(bluetoothctl connect "$PRIMARY_MAC" 2>&1)
+        if [ $? -eq 0 ]; then
+            # Poll for connection
+            for i in {1..10}; do
+                if bluetoothctl info "$PRIMARY_MAC" | grep -q "Connected: yes"; then
+                    notify-send "Bluetooth" "Successfully connected to $PRIMARY_NAME."
+                    log "Successfully connected to $PRIMARY_MAC."
+                    CONNECTED=true
+                    MAC_ADDRESS="$PRIMARY_MAC"  # Set to skip selection and handle in final block
+                    break
+                fi
+                sleep 1
+            done
+        fi
+
+        if [ "$CONNECTED" = false ]; then
+            notify-send "Bluetooth" "Failed to connect to $PRIMARY_NAME: ${CONNECT_OUTPUT:0:50}..."
+            log "Primary connect failed: $CONNECT_OUTPUT"
+
+            # Prompt if want to scan for other devices (via dmenu)
+            PROMPT_RESPONSE=$(echo -e "Yes\nNo" | dmenu -p "Scan for other devices?")
+            if [ "$PROMPT_RESPONSE" != "Yes" ]; then
+                log "User declined other devices or canceled."
+                turn_off_bluetooth
+                exit 0
+            fi
+
+            # Scan for discovered devices (not just paired)
+            notify-send "Bluetooth" "Scanning for devices..."
+            log "Starting device scan..."
+            bluetoothctl scan on
+            sleep 10  # Give time to discover; adjust if needed
+            DISCOVERED_DEVICES=$(bluetoothctl devices)
+            bluetoothctl scan off
+            log "Scan complete. Discovered: $DISCOVERED_DEVICES"
+
+            if [ -z "$DISCOVERED_DEVICES" ]; then
+                notify-send "Bluetooth" "No devices discovered."
+                log "No devices discovered."
+                turn_off_bluetooth
+                exit 1
+            fi
+
+            # Prompt with dmenu: Show "Name (MAC)" or just MAC if no name
+            SELECTED=$(echo "$DISCOVERED_DEVICES" | awk '{mac=$2; name=""; for(i=3;i<=NF;i++) name=name $i " "; if (name) printf "%s (%s)\n", name, mac; else printf "%s\n", mac}' | dmenu -p "Select Bluetooth device:")
+            if [ -z "$SELECTED" ]; then
+                notify-send "Bluetooth" "No device selected."
+                log "Device selection canceled."
+                turn_off_bluetooth
+                exit 0
+            fi
+
+            # Extract MAC from selection (handles "Name (MAC)" or plain MAC)
+            MAC_ADDRESS=$(echo "$SELECTED" | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' || echo "$SELECTED")
+            log "Selected device: $SELECTED (MAC: $MAC_ADDRESS)"
+
+            # Check if paired; pair/trust if not
+            if ! bluetoothctl info "$MAC_ADDRESS" | grep -q "Paired: yes"; then
+                notify-send "Bluetooth" "Pairing device..."
+                log "Pairing $MAC_ADDRESS"
+                bluetoothctl pair "$MAC_ADDRESS"
+                sleep 2
+                bluetoothctl trust "$MAC_ADDRESS"
+                sleep 2
+            fi
+        fi
+    fi
+
+    # Attempt connection (for selected, override, or primary if set)
+    if [ -n "$MAC_ADDRESS" ]; then
+        # Pre-check if already connected
+        if bluetoothctl info "$MAC_ADDRESS" | grep -q "Connected: yes"; then
+            if [ "$CONNECTED" = false ]; then
+                notify-send "Bluetooth" "Already connected to device."
+                log "Already connected to $MAC_ADDRESS."
+            fi
+            CONNECTED=true
+        else
+            notify-send "Bluetooth" "Connecting to device..."
+            CONNECT_OUTPUT=$(bluetoothctl connect "$MAC_ADDRESS" 2>&1)
+            if [ $? -eq 0 ]; then
+                # Poll for connection
+                for i in {1..10}; do
+                    if bluetoothctl info "$MAC_ADDRESS" | grep -q "Connected: yes"; then
+                        notify-send "Bluetooth" "Successfully connected."
+                        log "Successfully connected to $MAC_ADDRESS."
+                        CONNECTED=true
+                        break
+                    fi
+                    sleep 1
+                done
+                if [ "$CONNECTED" = false ]; then
+                    notify-send "Bluetooth" "Connection timed out."
+                    log "Connection timed out: $CONNECT_OUTPUT"
+                    turn_off_bluetooth
+                fi
+            else
+                notify-send "Bluetooth" "Failed to connect: ${CONNECT_OUTPUT:0:50}..."
+                log "Failed to connect to $MAC_ADDRESS: $CONNECT_OUTPUT"
+                turn_off_bluetooth
+            fi
+        fi
     fi
 fi
 
+# Update dwmblocks (after any state change)
 kill -44 $(pidof dwmblocks)

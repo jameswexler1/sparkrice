@@ -1,0 +1,3 @@
+#!/bin/sh
+# ~/.local/bin/trenot   (make it executable: chmod +x ~/.local/bin/trenot)
+exec st -e /home/gustavo/.local/bin/trainspythonpackage "$@"

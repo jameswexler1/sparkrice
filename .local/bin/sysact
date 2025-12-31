@@ -16,10 +16,20 @@ wmpid(){ # This function is needed if there are multiple instances of the window
 lock(){
     mpc pause
     pauseallmpv
-    wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+    current=$(wpctl get-volume @DEFAULT_AUDIO_SINK@)
+    if echo "$current" | grep -q "\[MUTED\]"; then
+        was_muted=1
+    else
+        was_muted=0
+    fi
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 1
     kill -44 $(pidof dwmblocks)
     slock
-    wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+    if [ $was_muted -eq 1 ]; then
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ 1
+    else
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
+    fi
     kill -44 $(pidof dwmblocks)
 }
 

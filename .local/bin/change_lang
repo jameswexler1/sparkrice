@@ -1,0 +1,26 @@
+
+#!/bin/bash
+
+declare -A languages=(
+	["English"]="us"
+	["Portuguese"]="br"
+	["Hebrew"]="il"
+	["German"]="de"
+	["Polish"]="pl"
+)
+
+# Aks which language
+language_selection=$(printf "%s\n" "${!languages[@]}" | dmenu -p "Choose layout language:")
+[ -z "$language_selection" ] && notify-send "No layout selected. Exiting" && exit 1
+
+
+layout="${languages[$language_selection]}"
+
+if [ -z "$layout" ]; then
+	notify-send "Invalid selection: $language_selection"
+	exit 1
+fi
+
+setxkbmap $layout
+
+notify-send "Keyboard layout changed to $language_selection ($layout)"
