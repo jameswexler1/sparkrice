@@ -1,0 +1,502 @@
+#!/bin/bash
+
+# Disable core dumps to prevent sensitive data in memory dumps
+ulimit -c 0
+
+# Set options for safer script execution
+set -euo pipefail
+IFS=$'\n\t'
+
+# Notification function (moved early)
+notify() {
+    if [ "${USE_GUI:-0}" = 1 ]; then
+        notify-send "$1"
+    else
+        echo "$1"
+    fi
+}
+
+DB_DIR="$HOME/Documents/database_files_organization"
+
+# Lock against concurrent runs
+exec 9>"$DB_DIR/.lock"
+flock -n 9 || { echo "Already running"; exit 1; }
+
+# Set strict umask for new files/dirs (user-only access)
+umask 077
+
+# Custom private temp base dir under DB_DIR (create if needed)
+PRIVATE_TMP_BASE="$DB_DIR/tmp"
+mkdir -p "$PRIVATE_TMP_BASE"
+chmod 700 "$PRIVATE_TMP_BASE"  # Ensure it's private
+
+# Create unique temp dir for this run
+TEMP_DIR=$(mktemp -d -p "$PRIVATE_TMP_BASE" tmp.XXXXXXXXXX)
+if [ $? -ne 0 ]; then
+    echo "Failed to create temp dir. Falling back to /tmp."
+    TEMP_DIR=$(mktemp -d /tmp/managerrrrr.XXXXXXXXXX)
+    chmod 700 "$TEMP_DIR"
+fi
+
+# Cleanup function for temp dir (moved early)
+cleanup() {
+    rm -rf "$TEMP_DIR"
+    notify "Temporary files cleaned up."
+}
+trap cleanup EXIT INT TERM  # Clean on exit or interrupt
+
+DB_GPG="$DB_DIR/docs.db.gpg"
+GPG_ID_FILE="$DB_DIR/.gpg-id"
+TEMP_DB="$TEMP_DIR/docs.db"  # No need for $$ now, since dir is unique
+BACKUP_DIR="$DB_DIR/backups"
+BACKUP_RETENTION=7 # Number of days to keep backups
+INSTRUCTIONS_DIR="$HOME/Documents/Instructions"
+
+# Detect if GUI is available
+if [ -n "${DISPLAY:-}" ] && command -v dmenu >/dev/null && command -v notify-send >/dev/null; then
+    USE_GUI=1
+else
+    USE_GUI=0
+fi
+
+# Override for CLI mode if --cli is passed
+if [ "${1:-}" = "--cli" ]; then
+    USE_GUI=0
+    shift
+fi
+
+# Clipboard function
+get_clipboard() {
+    if [ "${USE_GUI:-0}" = 1 ]; then
+        xclip -o -selection clipboard 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
+}
+
+# SQL escape function
+sql_escape() {
+    echo "$1" | sed "s/'/''/g"
+}
+
+# Input functions
+get_input() {
+    local prompt="$1"
+    local default="$2"
+    if [ "${USE_GUI:-0}" = 1 ]; then
+        echo "$default" | dmenu -p "$prompt:"
+    else
+        read -p "$prompt: " input
+        echo "${input:-$default}"
+    fi
+}
+
+get_choice() {
+    local options="$1"
+    local prompt="$2"
+    if [ "${USE_GUI:-0}" = 1 ]; then
+        echo -e "$options" | dmenu -p "$prompt:"
+    else
+        select opt in $(echo -e "$options" | tr '\n' ' '); do
+            echo "$opt"
+            break
+        done
+    fi
+}
+
+select_from_list() {
+    local items="$1"
+    local prompt="$2"
+    if [ "${USE_GUI:-0}" = 1 ]; then
+        echo "$items" | dmenu -l 10 -p "$prompt:"
+    else
+        echo "$items"
+        read -p "Enter selection (e.g., id: or full line): " sel
+        echo "$sel"
+    fi
+}
+
+get_confirm() {
+    local prompt="$1"
+    if [ "${USE_GUI:-0}" = 1 ]; then
+        echo -e "Yes\nNo" | dmenu -p "$prompt"
+    else
+        read -p "$prompt (y/n): " reply
+        if [ "${reply,,}" = "y" ]; then
+            echo "Yes"
+        else
+            echo "No"
+        fi
+    fi
+}
+
+# Ensure dir exists
+mkdir -p "$DB_DIR"
+if [ ! -d "$DB_DIR" ]; then
+    notify "Failed to create directory: $DB_DIR"
+    exit 1
+else
+    notify "Directory ensured: $DB_DIR"
+fi
+
+# First-time setup for GPG ID
+if [ ! -f "$GPG_ID_FILE" ]; then
+    notify "Starting GPG ID setup..."
+    # Try to detect from pass if available (check both common paths)
+    PASS_GPG_ID="$HOME/.password-store/.gpg-id"
+    PASS_GPG_ID_ALT="$HOME/.local/share/password-store/.gpg-id"
+    if [ -f "$PASS_GPG_ID" ]; then
+        cp "$PASS_GPG_ID" "$GPG_ID_FILE"
+        notify "Using GPG key from pass (standard path): $(cat "$GPG_ID_FILE")"
+    elif [ -f "$PASS_GPG_ID_ALT" ]; then
+        cp "$PASS_GPG_ID_ALT" "$GPG_ID_FILE"
+        notify "Using GPG key from pass (alternative path): $(cat "$GPG_ID_FILE")"
+    else
+        notify "No pass GPG ID found. Prompting for manual entry..."
+        # Get from clipboard if available, pre-fill
+        clipboard_key_id=$(get_clipboard)
+        key_id=$(get_input "Paste or enter your GPG key ID (from gpg --list-keys)" "$clipboard_key_id")
+        if [ -z "$key_id" ]; then
+            notify "Setup cancelled. Run gpg --gen-key first if no key exists."
+            exit 1
+        fi
+        echo "$key_id" > "$GPG_ID_FILE"
+        notify "GPG ID set manually: $key_id"
+    fi
+fi
+GPG_RECIPIENT=$(cat "$GPG_ID_FILE")
+notify "Using GPG recipient: $GPG_RECIPIENT"
+
+# Decrypt or create DB
+if [ -f "$DB_GPG" ]; then
+    notify "Encrypted database found. Decrypting..."
+    if gpg --quiet --batch --yes --decrypt "$DB_GPG" > "$TEMP_DB"; then
+        chmod 600 "$TEMP_DB"  # Ensure strict perms on decrypted DB
+        notify "Database decrypted successfully."
+    else
+        notify "Decryption failed. Check passphrase."
+        exit 1
+    fi
+else
+    notify "No encrypted database found. Creating new database..."
+    if sqlite3 "$TEMP_DB" "CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY AUTOINCREMENT, actual_name TEXT NOT NULL, type TEXT NOT NULL, location TEXT NOT NULL, descriptions TEXT, notes TEXT);"; then
+        chmod 600 "$TEMP_DB"
+        notify "New database created successfully."
+    else
+        notify "Failed to create new database."
+        exit 1
+    fi
+    # Encrypt immediately
+    notify "Encrypting new database..."
+    if gpg --quiet --batch --yes --encrypt --recipient "$GPG_RECIPIENT" --output "$DB_GPG" "$TEMP_DB"; then
+        notify "Database encrypted with your GPG key."
+    else
+        notify "Initial encryption failed."
+        exit 1
+    fi
+fi
+
+# Function to re-encrypt and backup
+re_encrypt() {
+    notify "Changes detected. Re-encrypting database..."
+    if gpg --quiet --batch --yes --encrypt --recipient "$GPG_RECIPIENT" --output "$DB_GPG" "$TEMP_DB"; then
+        notify "Database re-encrypted successfully."
+        # Automatic backup
+        mkdir -p "$BACKUP_DIR"
+        backup_file="$BACKUP_DIR/docs.db.gpg.$(date +%F_%H-%M-%S)"
+        cp "$DB_GPG" "$backup_file"
+        notify "Backup created: $backup_file"
+        # Rotate backups (keep last 7 days)
+        find "$BACKUP_DIR" -name "docs.db.gpg.*" -type f -mtime +$BACKUP_RETENTION -delete
+    else
+        notify "Re-encryption failed."
+    fi
+}
+
+# Handle CLI arguments if provided
+if [ $# -gt 0 ]; then
+    mode="$1"
+    shift
+    query="$*"
+else
+    mode=$(get_choice "Search\nAdd\nRemove\nEdit\nIndex Instructions\nBulk Edit\nQuit" "Document Manager")
+fi
+
+changed=0
+case "$mode" in
+    Add)
+        if [ "${USE_GUI:-0}" = 1 ]; then
+            clipboard_location=$(get_clipboard)
+        else
+            clipboard_location=""
+        fi
+        actual_name=$(get_input "Actual name (e.g., birth_certificate.pdf)" "")
+        [ -z "$actual_name" ] && exit
+        type=$(get_choice "physical\ndigital\ninstruction" "Type")
+        [ -z "$type" ] && exit
+        location=$(get_input "Location (e.g., bedroom_shelf or /path/to/file)" "$clipboard_location")
+        [ -z "$location" ] && exit
+        descriptions=$(get_input "Descriptions/aliases (comma-separated, e.g., birth cert,official record)" "")
+        notes=$(get_input "Optional notes" "")
+        actual_name_esc=$(sql_escape "$actual_name")
+        type_esc=$(sql_escape "$type")
+        location_esc=$(sql_escape "$location")
+        descriptions_esc=$(sql_escape "$descriptions")
+        notes_esc=$(sql_escape "$notes")
+        sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes) VALUES ('$actual_name_esc', '$type_esc', '$location_esc', '$descriptions_esc', '$notes_esc');"
+        notify "Added: $actual_name"
+        changed=1
+        ;;
+    Search)
+        if [ -z "${query:-}" ]; then
+            query=$(get_input "Search keywords (e.g., birth cert)" "")
+        fi
+        [ -z "$query" ] && exit
+        conditions="1=1"
+        for word in $query; do
+            word_lower=${word,,}
+            word_esc=$(sql_escape "$word_lower")
+            conditions="$conditions AND (LOWER(actual_name) LIKE '%$word_esc%' OR LOWER(descriptions) LIKE '%$word_esc%' OR LOWER(location) LIKE '%$word_esc%')"
+        done
+        results=$(sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location FROM documents WHERE $conditions;")
+        if [ -z "$results" ]; then
+            notify "No matches for '$query'"
+            exit
+        fi
+        formatted_results=$(echo "$results" | awk -F '|' '{print $2 " (" $3 ", " $4 ") | id:" $1}')
+        selected=$(select_from_list "$formatted_results" "Matches")
+        if [ -n "$selected" ]; then
+            id=$(echo "$selected" | awk -F '|' '{print $2}' | sed 's/id://')
+            entry=$(sqlite3 "$TEMP_DB" "SELECT actual_name, type, location, descriptions, notes FROM documents WHERE id=$id;")
+            actual_name=$(echo "$entry" | cut -d '|' -f 1)
+            type=$(echo "$entry" | cut -d '|' -f 2)
+            location=$(echo "$entry" | cut -d '|' -f 3)
+            descriptions=$(echo "$entry" | cut -d '|' -f 4)
+            notes=$(echo "$entry" | cut -d '|' -f 5)
+            if [ "$type" = "instruction" ]; then
+                details="Descriptions: $descriptions\nNotes: $notes"
+            else
+                details="Actual: $actual_name\nType: $type\nLocation: $location\nDescriptions: $descriptions\nNotes: $notes"
+            fi
+            if [ "${USE_GUI:-0}" = 1 ]; then
+                echo -e "$details" | dmenu -l 10 -p "Details:"
+            else
+                echo "$details"
+            fi
+            if [ "$type" = "digital" ] || [ "$type" = "instruction" ]; then
+                open_confirm=$(get_confirm "Open file?")
+                if [ "$open_confirm" = "Yes" ]; then
+                    if [ -f "$location" ]; then
+                        ext="${location##*.}"
+                        if [ "$ext" = "md" ] || [ "$ext" = "txt" ] || [ "$type" = "instruction" ]; then
+                            st -e nvim "$location" &
+                            notify "Opening in nvim: $location"
+                        else
+                            xdg-open "$location" &
+                            notify "Opening: $location"
+                        fi
+                    else
+                        notify "File not found: $location"
+                    fi
+                fi
+            fi
+        fi
+        ;;
+    Remove)
+        if [ -z "${query:-}" ]; then
+            query=$(get_input "Search keywords to remove" "")
+        fi
+        [ -z "$query" ] && exit
+        conditions="1=1"
+        for word in $query; do
+            word_lower=${word,,}
+            word_esc=$(sql_escape "$word_lower")
+            conditions="$conditions AND (LOWER(actual_name) LIKE '%$word_esc%' OR LOWER(descriptions) LIKE '%$word_esc%' OR LOWER(location) LIKE '%$word_esc%')"
+        done
+        results=$(sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location FROM documents WHERE $conditions;")
+        if [ -z "$results" ]; then
+            notify "No matches for '$query'"
+            exit
+        fi
+        formatted_results=$(echo "$results" | awk -F '|' '{print $2 " (" $3 ", " $4 ") | id:" $1}')
+        selected=$(select_from_list "$formatted_results" "Select to remove")
+        if [ -n "$selected" ]; then
+            id=$(echo "$selected" | awk -F '|' '{print $2}' | sed 's/id://')
+            confirm=$(get_confirm "Confirm remove '$selected'?")
+            if [ "$confirm" = "Yes" ]; then
+                sqlite3 "$TEMP_DB" "DELETE FROM documents WHERE id=$id;"
+                notify "Removed entry $id"
+                changed=1
+            fi
+        fi
+        ;;
+    Edit)
+        if [ -z "${query:-}" ]; then
+            query=$(get_input "Search keywords to edit" "")
+        fi
+        [ -z "$query" ] && exit
+        conditions="1=1"
+        for word in $query; do
+            word_lower=${word,,}
+            word_esc=$(sql_escape "$word_lower")
+            conditions="$conditions AND (LOWER(actual_name) LIKE '%$word_esc%' OR LOWER(descriptions) LIKE '%$word_esc%' OR LOWER(location) LIKE '%$word_esc%')"
+        done
+        results=$(sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location FROM documents WHERE $conditions;")
+        if [ -z "$results" ]; then
+            notify "No matches for '$query'"
+            exit
+        fi
+        formatted_results=$(echo "$results" | awk -F '|' '{print $2 " (" $3 ", " $4 ") | id:" $1}')
+        selected=$(select_from_list "$formatted_results" "Select to edit")
+        if [ -n "$selected" ]; then
+            id=$(echo "$selected" | awk -F '|' '{print $2}' | sed 's/id://')
+            current=$(sqlite3 "$TEMP_DB" "SELECT actual_name, type, location, descriptions, notes FROM documents WHERE id=$id;")
+            actual_name=$(echo "$current" | cut -d '|' -f 1)
+            type=$(echo "$current" | cut -d '|' -f 2)
+            location=$(echo "$current" | cut -d '|' -f 3)
+            descriptions=$(echo "$current" | cut -d '|' -f 4)
+            notes=$(echo "$current" | cut -d '|' -f 5)
+            temp_file="$TEMP_DIR/doc_edit.tmp"
+            cat > "$temp_file" << EOF
+# Edit the values below. Keep the exact format: key="value" (quotes around value if it has spaces/commas).
+# Do not change the ID line. Empty values are okay for descriptions/notes.
+# Save and quit nvim to apply changes.
+id="$id" # READ-ONLY: Do not edit this!
+actual_name="$actual_name"
+type="$type" # Must be 'physical', 'digital', or 'instruction'
+location="$location"
+descriptions="$descriptions" # Comma-separated, e.g., "birth cert,official record"
+notes="$notes"
+EOF
+            chmod 600 "$temp_file"
+            notify "Launching nvim on $temp_file"
+            if [ "${USE_GUI:-0}" = 1 ]; then
+                st -e nvim "$temp_file"
+            else
+                nvim "$temp_file"
+            fi
+            new_actual_name=$(grep '^actual_name=' "$temp_file" | sed -E 's/^actual_name="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+            new_type=$(grep '^type=' "$temp_file" | sed -E 's/^type="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+            new_location=$(grep '^location=' "$temp_file" | sed -E 's/^location="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+            new_descriptions=$(grep '^descriptions=' "$temp_file" | sed -E 's/^descriptions="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+            new_notes=$(grep '^notes=' "$temp_file" | sed -E 's/^notes="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+            if [ -n "$new_actual_name" ] && [ -n "$new_type" ] && [ -n "$new_location" ]; then
+                # Validate type
+                case "$new_type" in
+                    physical|digital|instruction) ;;
+                    *) notify "Invalid type '$new_type'"; continue ;;
+                esac
+                # Check for dangerous characters
+                case "$new_actual_name$new_type$new_location$new_descriptions$new_notes" in
+                    *";"*|*$'\n'*) notify "Invalid characters detected; skipping entry"; continue ;;
+                esac
+                new_actual_name_esc=$(sql_escape "$new_actual_name")
+                new_type_esc=$(sql_escape "$new_type")
+                new_location_esc=$(sql_escape "$new_location")
+                new_descriptions_esc=$(sql_escape "$new_descriptions")
+                new_notes_esc=$(sql_escape "$new_notes")
+                sqlite3 "$TEMP_DB" "UPDATE documents SET actual_name='$new_actual_name_esc', type='$new_type_esc', location='$new_location_esc', descriptions='$new_descriptions_esc', notes='$new_notes_esc' WHERE id=$id;"
+                notify "Updated entry $id"
+                changed=1
+            else
+                notify "Edit failed: Invalid format in temp file"
+            fi
+        fi
+        ;;
+    "Index Instructions")
+        notify "Indexing instructions folder..."
+        mkdir -p "$INSTRUCTIONS_DIR" # Ensure it exists
+        while IFS= read -r -d '' file; do
+            filename=$(basename "$file")
+            if [ "${file##*.}" = "md" ] || [ "${file##*.}" = "txt" ]; then # Filter text files
+                location_esc=$(sql_escape "$file")
+                filename_esc=$(sql_escape "$filename")
+                # Check if exists
+                exists=$(sqlite3 "$TEMP_DB" "SELECT id FROM documents WHERE location='$location_esc';")
+                if [ -z "$exists" ]; then
+                    descriptions_esc=$(sql_escape "$(echo "$filename" | sed 's/_/ /g; s/\..*//')") # Simple keyword gen from name
+                    sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes) VALUES ('$filename_esc', 'instruction', '$location_esc', '$descriptions_esc', '');"
+                    notify "Added instruction: $filename"
+                    changed=1
+                fi
+            fi
+        done < <(find "$INSTRUCTIONS_DIR" -type f -print0)
+        ;;
+    "Bulk Edit")
+        temp_file="$TEMP_DIR/docs_bulk_edit.tmp"
+        notify "Dumping database to $temp_file for bulk editing..."
+        echo "# Bulk Edit File for Documents Database" > "$temp_file"
+        echo "# Each entry is separated by ---" >> "$temp_file"
+        echo "# Edit values in the format: key=\"value\" (use quotes if value has spaces/commas)." >> "$temp_file"
+        echo "# To remove an entry, delete its entire section (from --- to next ---)." >> "$temp_file"
+        echo "# Do not change ID lines. Empty descriptions/notes are okay." >> "$temp_file"
+        echo "# Save and quit nvim to apply. Invalid formats will skip entries." >> "$temp_file"
+        echo "# Types must be 'physical', 'digital', or 'instruction'." >> "$temp_file"
+        echo "---" >> "$temp_file"
+        sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location, descriptions, notes FROM documents ORDER BY id;" | while IFS='|' read -r id actual_name type location descriptions notes; do
+            cat >> "$temp_file" << EOF
+id="$id" # READ-ONLY: Do not edit!
+actual_name="$actual_name"
+type="$type"
+location="$location"
+descriptions="$descriptions"
+notes="$notes"
+---
+EOF
+        done
+        chmod 600 "$temp_file"
+        notify "Launching nvim on $temp_file. Edit carefully!"
+        if [ "${USE_GUI:-0}" = 1 ]; then
+            st -e nvim "$temp_file"
+        else
+            nvim "$temp_file"
+        fi
+        # Reload from edited file
+        notify "Reloading database from bulk edit file..."
+        new_temp="$TEMP_DIR/docs_new.db"
+        sqlite3 "$new_temp" "CREATE TABLE documents (id INTEGER PRIMARY KEY AUTOINCREMENT, actual_name TEXT NOT NULL, type TEXT NOT NULL, location TEXT NOT NULL, descriptions TEXT, notes TEXT);"
+        chmod 600 "$new_temp"
+        awk 'BEGIN {RS="---\n"; ORS="\0"} NR>1 {print $0}' "$temp_file" | while read -r -d '' section; do
+            if [ -n "$section" ]; then
+                id=$(echo "$section" | grep '^id=' | sed -E 's/^id="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+                actual_name=$(echo "$section" | grep '^actual_name=' | sed -E 's/^actual_name="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+                type=$(echo "$section" | grep '^type=' | sed -E 's/^type="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+                location=$(echo "$section" | grep '^location=' | sed -E 's/^location="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+                descriptions=$(echo "$section" | grep '^descriptions=' | sed -E 's/^descriptions="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+                notes=$(echo "$section" | grep '^notes=' | sed -E 's/^notes="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+                if [ -n "$id" ] && [ -n "$actual_name" ] && [ -n "$type" ] && [ -n "$location" ]; then
+                    # Validate type
+                    case "$type" in
+                        physical|digital|instruction) ;;
+                        *) notify "Invalid type '$type' for id $id; skipping"; continue ;;
+                    esac
+                    # Check for dangerous characters
+                    case "$actual_name$type$location$descriptions$notes" in
+                        *";"*|*$'\n'*) notify "Invalid characters detected for id $id; skipping"; continue ;;
+                    esac
+                    actual_name_esc=$(sql_escape "$actual_name")
+                    type_esc=$(sql_escape "$type")
+                    location_esc=$(sql_escape "$location")
+                    descriptions_esc=$(sql_escape "$descriptions")
+                    notes_esc=$(sql_escape "$notes")
+                    sqlite3 "$new_temp" "INSERT INTO documents (id, actual_name, type, location, descriptions, notes) VALUES ($id, '$actual_name_esc', '$type_esc', '$location_esc', '$descriptions_esc', '$notes_esc');"
+                else
+                    notify "Skipped invalid section for id: $id"
+                fi
+            fi
+        done
+        mv "$new_temp" "$TEMP_DB"
+        notify "Bulk changes applied (skipped any invalid sections)."
+        changed=1
+        ;;
+    Quit|*)
+        ;;
+esac
+
+# Re-encrypt if changed
+if [ "$changed" = 1 ]; then
+    re_encrypt
+fi
+
+# Clean up (trap handles it, but explicit for notify)
+notify "Script execution complete."

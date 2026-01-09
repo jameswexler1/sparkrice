@@ -419,7 +419,6 @@ endfunction
 command! -range Table <line1>,<line2>call Table()
 
 
-
 highlight SpellBad ctermfg=red ctermbg=none guifg=red guibg=none gui=underline
 
 " Sets automatically VimWiki Diary entry updates in the Diary index
