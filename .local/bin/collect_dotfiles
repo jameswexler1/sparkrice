@@ -119,7 +119,7 @@ done
 BIN_SRC_DIR="$HOME/.local/bin"
 BIN_DEST_DIR="$DOTFILES_DIR/.local/bin"
 mkdir -p "$BIN_DEST_DIR"
-BIN_EXCLUDES=("askgemini.py" "summarizer.py")  # Add more as needed
+BIN_EXCLUDES=("askgemini.py" "summarizer.py" "gemini_query")  # Add more as needed
 for file in "$BIN_SRC_DIR"/*; do
     if [ -e "$file" ]; then # Check if file exists (handles empty dir)
         filename=$(basename "$file")

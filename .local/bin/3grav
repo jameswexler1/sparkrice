@@ -284,7 +284,7 @@ select_history() {
 # Main menu
 main_menu() {
     local operation
-    operation=$(printf "Crop\nCut/Trim\nResize/Scale\nSpeed Change\nRotate/Flip\nConcatenate\nSplit\nColor Paint\nOverlay Text\nWatermark\nPicture-in-Picture\nApply Filters\nStabilization\nExtract Audio\nReplace Audio\nAdjust Volume\nMute\nExtract Frame\nExtract Frames\nMake GIF\nConvert Format\nBurn Subtitles\nExtract Subtitles\nAdd Subtitles\nBatch Processing\nHistory Rerun" | dmenu -p "Select operation:")
+    operation=$(printf "Crop\nCut/Trim\nResize/Scale\nSpeed Change\nRotate/Flip\nConcatenate\nSplit\nColor Paint\nOverlay Text\nWatermark\nPicture-in-Picture\nApply Filters\nStabilization\nExtract Audio\nReplace Audio\nAdjust Volume\nMute\nExtract Frame\nExtract Frames\nMake GIF\nConvert Format\nType Subtitles\nBurn Subtitles\nExtract Subtitles\nAdd Subtitles\nBatch Processing\nHistory Rerun" | dmenu -p "Select operation:")
     [ -z "$operation" ] && notify-send "No operation selected. Exiting." && exit 1
     echo "$operation"
 }
@@ -633,6 +633,28 @@ do_convert_format() {
     echo "$cmd"
 }
 
+do_create_subtitles() {
+    local input_file="$1"
+    local lua_script="$HOME/.local/bin/subtitle.lua"  # Adjust path if needed
+    if [ ! -f "$lua_script" ]; then
+        notify-send "Lua script not found at $lua_script."
+        return
+    fi
+    local output_srt="${input_file%.*}.srt"
+    notify-send "Starting interactive subtitling with mpv. Press 'ctrl+a' to add subs, CTRL+S to save."
+    mpv --msg-level=all=error --script="$lua_script" "$input_file" > /dev/null 2>&1
+    # Move/rename the saved .srt
+    if [ -f "$HOME/.config/mpv/output.srt" ]; then
+        mv "$HOME/.config/mpv/output.srt" "$output_srt"
+        notify-send "SRT created: $output_srt"
+    else
+        notify-send "Error: SRT file not created. Check if you added subs and saved."
+        return
+    fi
+    # Now call existing burn function with the SRT
+    do_burn_subtitles "$input_file" "$output_srt"
+}
+
 do_burn_subtitles() {
     local input_file="$1"
     local srt_file
@@ -723,6 +745,7 @@ else
             "Extract Frames") cmd=$(do_extract_frames "$file") ;;
             "Make GIF") cmd=$(do_make_gif "$file") ;;
             "Convert Format") cmd=$(do_convert_format "$file") ;;
+	    "Type Subtitles") cmd=$(do_create_subtitles "$file") ;;
             "Burn Subtitles") cmd=$(do_burn_subtitles "$file") ;;
             "Extract Subtitles") cmd=$(do_extract_subtitles "$file") ;;
             "Add Subtitles") cmd=$(do_add_subtitles "$file") ;;

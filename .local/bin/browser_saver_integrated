@@ -1,0 +1,230 @@
+#!/bin/bash
+
+# browser-session-manager.sh
+# Save and restore browser sessions for Brave, Chrome, Chromium, and Firefox.
+# - Auto-detects installed and running browsers
+# - Saves sessions via remote debugging, SNSS file parsing, or Firefox sessionstore
+# - Restores sessions by opening saved URLs in the selected browser
+# - Stores per-browser session files in $HOME/.local/share/<browser>_session.json
+# - Provides desktop notifications for success or failure
+# - Uses dmenu for action and browser selection if multiple options exist
+
+# Directory for session files
+SESSION_DIR="$HOME/.local/share"
+
+# Function to detect installed browsers
+detect_installed() {
+    local browsers=""
+    command -v brave >/dev/null 2>&1 && browsers+="brave\n"
+    command -v google-chrome-stable >/dev/null 2>&1 && browsers+="chrome\n"
+    command -v chromium >/dev/null 2>&1 && browsers+="chromium\n"
+    command -v firefox >/dev/null 2>&1 && browsers+="firefox\n"
+    echo -e "$browsers" | sed '/^$/d'  # Remove empty lines
+}
+
+# Function to detect running browsers
+detect_running() {
+    local running=""
+    pgrep -f brave >/dev/null && running+="brave\n"
+    pgrep -f "chrome|google-chrome" >/dev/null && running+="chrome\n"
+    pgrep -f chromium >/dev/null && running+="chromium\n"
+    pgrep -f firefox >/dev/null && running+="firefox\n"
+    echo -e "$running" | sed '/^$/d'
+}
+
+# Get action via dmenu if not provided as arg
+ACTION="${1:-$(echo -e "save\nrestore" | dmenu -p "Session action:")}"
+
+if [[ -z "$ACTION" ]]; then
+    notify-send "Session Manager" "No action selected. Exiting." -u critical
+    echo "No action selected. Exiting."
+    exit 1
+fi
+
+# Detect browsers
+INSTALLED_BROWSERS=$(detect_installed)
+if [[ -z "$INSTALLED_BROWSERS" ]]; then
+    notify-send "Session Manager" "No supported browsers installed. Exiting." -u critical
+    echo "No supported browsers installed. Exiting."
+    exit 1
+fi
+
+# For save, prioritize running browsers; for restore, use all installed
+if [[ "$ACTION" == "save" ]]; then
+    AVAILABLE_BROWSERS=$(detect_running)
+    if [[ -z "$AVAILABLE_BROWSERS" ]]; then
+        notify-send "Session Manager" "No supported browsers are running." -u critical
+        echo "No supported browsers are running. Exiting."
+        exit 1
+    fi
+else
+    AVAILABLE_BROWSERS="$INSTALLED_BROWSERS"
+fi
+
+# Select browser via dmenu if multiple, or auto-pick if only one
+NUM_AVAILABLE=$(echo "$AVAILABLE_BROWSERS" | wc -l)
+if [[ $NUM_AVAILABLE -gt 1 ]]; then
+    BROWSER=$(echo -e "$AVAILABLE_BROWSERS" | dmenu -p "Select browser:")
+else
+    BROWSER=$(echo "$AVAILABLE_BROWSERS" | head -n1)
+fi
+
+if [[ -z "$BROWSER" ]]; then
+    notify-send "Session Manager" "No browser selected. Exiting." -u critical
+    echo "No browser selected. Exiting."
+    exit 1
+fi
+
+# Session file per browser
+SESSION_FILE="$SESSION_DIR/${BROWSER}_session.json"
+
+# Define profile dirs for Chromium-based
+case "$BROWSER" in
+    brave) PROFILE_DIR="$HOME/.config/BraveSoftware/Brave-Browser/Default" ;;
+    chrome) PROFILE_DIR="$HOME/.config/google-chrome/Default" ;;
+    chromium) PROFILE_DIR="$HOME/.config/chromium/Default" ;;
+    *) PROFILE_DIR="" ;;
+esac
+
+case "$ACTION" in
+    save)
+        if [[ "$BROWSER" == "firefox" ]]; then
+            # Firefox fallback: Assumes default profile and browser closed (or copy sessionstore.json manually)
+            FF_PROFILE_DIR=$(find "$HOME/.mozilla/firefox" -maxdepth 1 -type d -name "*.default-release" 2>/dev/null)
+            if [[ -z "$FF_PROFILE_DIR" ]]; then
+                notify-send "Session Manager" "Firefox profile not found. Ensure Firefox is installed and has been run." -u critical
+                echo "Firefox profile not found. Ensure Firefox is installed and has been run."
+                exit 1
+            fi
+            SESSIONSTORE="$FF_PROFILE_DIR/sessionstore.jsonlz4"
+            if [[ ! -f "$SESSIONSTORE" ]]; then
+                notify-send "Session Manager" "Firefox sessionstore not found. Close Firefox to generate it." -u critical
+                echo "Firefox sessionstore not found. Close Firefox to generate it."
+                exit 1
+            fi
+            # Decompress and extract URLs (requires lz4; install if needed: sudo pacman -S lz4)
+            if lz4 -d "$SESSIONSTORE" -c | jq -r '.windows[].tabs[].entries[-1].url' > "$SESSION_FILE"; then
+                notify-send "Session Manager" "Firefox session saved to $SESSION_FILE (note: this requires browser closed for accuracy)."
+                echo "Firefox session saved to $SESSION_FILE (note: this requires browser closed for accuracy)."
+            else
+                notify-send "Session Manager" "Failed to save Firefox session." -u critical
+                echo "Failed to save Firefox session."
+                exit 1
+            fi
+        else
+            # Chromium-based: Try remote debugging first
+            if curl -s --head http://localhost:9222/json | grep -q "HTTP/1.1 200 OK"; then
+                if curl -s http://localhost:9222/json | jq -r '.[] | select(.type=="page") | .url' > "$SESSION_FILE"; then
+                    notify-send "Session Manager" "Session saved to $SESSION_FILE (via remote debugging)."
+                    echo "Session saved to $SESSION_FILE (via remote debugging)."
+                else
+                    notify-send "Session Manager" "Failed to save session via remote debugging." -u critical
+                    echo "Failed to save session via remote debugging."
+                    exit 1
+                fi
+            else
+                # Fallback: Parse latest Tabs_* SNSS file in Sessions/
+                if [[ -z "$PROFILE_DIR" || ! -d "$PROFILE_DIR/Sessions" ]]; then
+                    notify-send "Session Manager" "Sessions directory not found for $BROWSER." -u critical
+                    echo "Sessions directory not found for $BROWSER."
+                    exit 1
+                fi
+                CURRENT_TABS=$(ls -t "$PROFILE_DIR/Sessions/Tabs_"* 2>/dev/null | head -n1)
+                if [[ -z "$CURRENT_TABS" || ! -f "$CURRENT_TABS" ]]; then
+                    notify-send "Session Manager" "No Tabs file found in Sessions/. Wait a minute with $BROWSER open or close it to generate one." -u critical
+                    echo "No Tabs file found in Sessions/. Wait a minute with $BROWSER open or close it to generate one."
+                    exit 1
+                fi
+
+                # Python parser for SNSS (extracts URLs from tab navigation commands)
+                python3 -c '
+import struct
+import sys
+import json
+
+def extract_urls_from_snss(file_path):
+    urls = {}
+    with open(file_path, "rb") as f:
+        header = f.read(8)
+        if header[:4] != b"SNSS":
+            sys.exit(1)
+        while True:
+            size_data = f.read(2)
+            if len(size_data) < 2:
+                break
+            record_size = struct.unpack("<H", size_data)[0]
+            cmd_data = f.read(1)
+            if len(cmd_data) < 1:
+                break
+            cmd_id = cmd_data[0]
+            data_size = record_size - 1
+            if cmd_id in (1, 6):
+                len_data = f.read(4)
+                if len(len_data) < 4:
+                    break
+                payload_len = struct.unpack("<I", len_data)[0]
+                payload = f.read(payload_len)
+                if len(payload) < payload_len:
+                    break
+                offset = 0
+                tab_id = struct.unpack("<I", payload[offset:offset+4])[0]
+                offset += 4
+                index = struct.unpack("<I", payload[offset:offset+4])[0]
+                offset += 4
+                url_len = struct.unpack("<I", payload[offset:offset+4])[0]
+                offset += 4
+                url = payload[offset:offset+url_len].decode("ascii", errors="ignore")
+                urls[tab_id] = url  # Last URL per tab
+            else:
+                f.read(data_size - 4 if cmd_id in (1,6) else data_size)  # Skip remaining
+    return list(urls.values())
+
+urls = extract_urls_from_snss("'$CURRENT_TABS'")
+with open("'$SESSION_FILE'", "w") as out:
+    for url in urls:
+        out.write(url + "\n")
+'
+                if [[ $? -eq 0 && -s "$SESSION_FILE" ]]; then
+                    notify-send "Session Manager" "Session saved to $SESSION_FILE (via SNSS fallback; may not be 100% live)."
+                    echo "Session saved to $SESSION_FILE (via SNSS fallback; may not be 100% live)."
+                else
+                    # Ultra-fallback: Use strings if Python fails
+                    strings "$CURRENT_TABS" | grep -E '^https?://' > "$SESSION_FILE"
+                    if [[ -s "$SESSION_FILE" ]]; then
+                        notify-send "Session Manager" "Session saved to $SESSION_FILE (via strings fallback; may include extras)."
+                        echo "Session saved to $SESSION_FILE (via strings fallback; may include extras)."
+                    else
+                        notify-send "Session Manager" "Failed to save session via fallback." -u critical
+                        echo "Failed to save session via fallback."
+                        exit 1
+                    fi
+                fi
+            fi
+        fi
+        ;;
+    restore)
+        if [[ ! -f "$SESSION_FILE" ]]; then
+            notify-send "Session Manager" "No session file found for $BROWSER. Save a session first." -u critical
+            echo "No session file found for $BROWSER. Save a session first."
+            exit 1
+        fi
+        URLS=$(cat "$SESSION_FILE")
+        case "$BROWSER" in
+            chrome) BROWSER_CMD="google-chrome-stable" ;;
+            *) BROWSER_CMD="$BROWSER" ;;
+        esac
+        if $BROWSER_CMD $URLS; then
+            notify-send "Session Manager" "Session restored in $BROWSER"
+            echo "Session restored in $BROWSER"
+        else
+            notify-send "Session Manager" "Failed to restore session in $BROWSER." -u critical
+            echo "Failed to restore session in $BROWSER."
+            exit 1
+        fi
+        ;;
+    *)
+        notify-send "Session Manager" "Invalid action. Use 'save' or 'restore'." -u critical
+        echo "Invalid action. Use 'save' or 'restore'."
+        exit 1
+        ;;
+esac
