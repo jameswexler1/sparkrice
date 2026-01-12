@@ -1,4 +1,0 @@
-
-#!/bin/sh
-
-st -e setxkbmap us
