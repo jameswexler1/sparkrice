@@ -44,6 +44,7 @@ INCLUDES=(
     ".config/x11/xinitrc"
     ".config/x11/xprofile"
     ".config/x11/xresources"
+    ".config/yazi"
     ".config/zathura/zathurarc"
     ".config/zsh/.zshrc"
     ".gtkrc-2.0" # Symlink, copy as-is

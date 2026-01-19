@@ -4,6 +4,7 @@
 # Dependencies: ffmpeg (including ffplay and ffprobe), dmenu, slop, xcolor, notify-send, xwininfo
 # Usage: Run the script, select operation via dmenu, follow prompts.
 # Note: For precise cropping, painting, watermarking, etc., ffplay is used to display the video for cursor selection.
+# Requires the subtitle.lua script
 
 HISTORY_FILE="$HOME/.video_edit_history"
 mkdir -p "$(dirname "$HISTORY_FILE")"
@@ -300,42 +301,178 @@ do_crop() {
     echo "$cmd"
 }
 
-do_trim() {
-    local input_file="$1"
-    local start_time
-    start_time=$(dmenu -p "Start time (HH:MM:SS or seconds):")
-    [ -z "$start_time" ] && return
-    if ! validate_time "$start_time"; then
-        notify-send "Invalid start time format."
+# Function to convert time to seconds
+time_to_seconds() {
+    local time="$1"
+    if [[ "$time" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        echo "$time"
         return
     fi
-    local end_time
-    end_time=$(dmenu -p "End time (HH:MM:SS or seconds):")
-    [ -z "$end_time" ] && return
-    if ! validate_time "$end_time"; then
-        notify-send "Invalid end time format."
+    if [[ "$time" =~ ^([0-9]{1,2}:)?[0-9]{1,2}:[0-9]{1,2}(\.[0-9]+)?$ ]]; then
+        IFS=':' read -r -a parts <<< "$time"
+        local secs=0
+        local len=${#parts[@]}
+        if [ $len -eq 3 ]; then
+            secs=$((parts[0]*3600 + parts[1]*60 + ${parts[2]%.*}))
+            local frac="${parts[2]#*.}"
+            [ -n "$frac" ] && secs="$secs.$frac"
+        elif [ $len -eq 2 ]; then
+            secs=$((parts[0]*60 + ${parts[1]%.*}))
+            local frac="${parts[1]#*.}"
+            [ -n "$frac" ] && secs="$secs.$frac"
+        elif [ $len -eq 1 ]; then
+            secs="${parts[0]}"
+        fi
+        echo "$secs"
+    else
+        echo ""
+    fi
+}
+
+do_trim() {
+    local input_file="$1"
+    local lua_script="$HOME/.local/bin/trim.lua" # Adjust path if needed
+    if [ ! -f "$lua_script" ]; then
+        notify-send "Lua script not found at $lua_script."
         return
+    fi
+    local mode
+    mode=$(printf "Keep segments\nRemove segments" | dmenu -p "Trim mode:")
+    [ -z "$mode" ] && return
+    if [ "$mode" = "Keep segments" ]; then
+        mode="keep"
+        seg_prompt="keep"
+        notify_msg="Starting interactive trim with mpv (Keep mode). Play/pause with space, seek with arrows or mouse. Press 'a' to set start (A point), 'b' to set end (B point), 's' to add the current A-B segment to the keep list, CTRL+S to save and exit."
+    else
+        mode="remove"
+        seg_prompt="remove"
+        notify_msg="Starting interactive trim with mpv (Remove mode). Play/pause with space, seek with arrows or mouse. Press 'a' to set start (A point), 'b' to set end (B point), 's' to add the current A-B segment to the remove list, CTRL+S to save and exit."
+    fi
+    local input_method
+    input_method=$(printf "Interactive (mpv)\nManual entry" | dmenu -p "Input method:")
+    [ -z "$input_method" ] && return
+    local segments=()
+    if [ "$input_method" = "Manual entry" ]; then
+        while true; do
+            local entry
+            entry=$(dmenu -p "Enter $seg_prompt segment (start:end, HH:MM:SS or secs; empty to finish):")
+            [ -z "$entry" ] && break
+            IFS=':' read -r start end <<< "$entry"
+            if ! validate_time "$start" || ! validate_time "$end"; then
+                notify-send "Invalid time format in '$entry'."
+                continue
+            fi
+            local start_sec end_sec
+            start_sec=$(time_to_seconds "$start")
+            end_sec=$(time_to_seconds "$end")
+            if [ -z "$start_sec" ] || [ -z "$end_sec" ]; then
+                notify-send "Invalid time format in '$entry'."
+                continue
+            fi
+            if awk "BEGIN {exit !($start_sec >= $end_sec)}"; then
+                notify-send "Start must be before end in '$entry'."
+                continue
+            fi
+            segments+=("$start_sec $end_sec")
+        done
+    else
+        notify-send "$notify_msg"
+        local segments_file="$HOME/.config/mpv/trim_segments.txt"
+        rm -f "$segments_file" # Clean up any previous file
+        mpv --msg-level=all=error --script="$lua_script" --script-opts=trim_mode="$mode" "$input_file" > /dev/null 2>&1
+        if [ ! -f "$segments_file" ] || [ ! -s "$segments_file" ]; then
+            notify-send "No segments saved or file empty."
+            return
+        fi
+        mapfile -t segments < "$segments_file"
+        rm "$segments_file"
+    fi
+    local num_seg=${#segments[@]}
+    if [ $num_seg -eq 0 ]; then
+        notify-send "No segments defined."
+        return
+    fi
+    if [ "$mode" = "remove" ]; then
+        local duration
+        duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file")
+        # Sort segments by start
+        mapfile -t sorted_segments < <(printf "%s\n" "${segments[@]}" | sort -n -k1)
+        # Merge overlapping removes
+        local merged=()
+        if [ ${#sorted_segments[@]} -gt 0 ]; then
+            local first
+            first=(${sorted_segments[0]})
+            local m_start="${first[0]}"
+            local m_end="${first[1]}"
+            for ((i=1; i<${#sorted_segments[@]}; i++)); do
+                local curr
+                curr=(${sorted_segments[$i]})
+                if LC_NUMERIC=C awk "BEGIN {exit !($m_end >= ${curr[0]})}"; then
+                    m_end=$(LC_NUMERIC=C awk "BEGIN {print ($m_end > ${curr[1]} ? $m_end : ${curr[1]})}")
+                else
+                    merged+=("$m_start $m_end")
+                    m_start="${curr[0]}"
+                    m_end="${curr[1]}"
+                fi
+            done
+            merged+=("$m_start $m_end")
+        fi
+        # Compute keep segments
+        local keeps=()
+        local prev_end=0
+        for remove in "${merged[@]}"; do
+            local r_start r_end
+            read -r r_start r_end <<< "$remove"
+            if LC_NUMERIC=C awk "BEGIN {exit !($prev_end < $r_start)}"; then
+                keeps+=("$prev_end $r_start")
+            fi
+            prev_end=$(LC_NUMERIC=C awk "BEGIN {print ($prev_end > $r_end ? $prev_end : $r_end)}")
+        done
+        if LC_NUMERIC=C awk "BEGIN {exit !($prev_end < $duration)}"; then
+            keeps+=("$prev_end $duration")
+        fi
+        segments=("${keeps[@]}")
+        num_seg=${#segments[@]}
+        if [ $num_seg -eq 0 ]; then
+            notify-send "Removals cover the entire video; nothing to keep."
+            return
+        fi
     fi
     local output_file
     output_file=$(get_output_file "$input_file" "_trimmed")
-    local cmd="ffmpeg -y -i \"$input_file\" -ss $start_time -to $end_time -c copy \"$output_file\""
-    echo "$cmd"
-}
-
-do_resize() {
-    local input_file="$1"
-    local scale
-    scale=$(printf "1920x1080\n1280x720\n640x480\nCustom" | dmenu -p "Select scale:")
-    if [ "$scale" = "Custom" ]; then
-        scale=$(dmenu -p "Enter width:height:")
+    local ext="${input_file##*.}"
+    local cmd
+    if [ $num_seg -eq 1 ]; then
+        local start end
+        read -r start end <<< "${segments[0]}"
+        cmd="ffmpeg -y -i \"$input_file\" -ss $start -to $end -c copy \"$output_file\""
+    else
+        local temp_files=()
+        local extract_cmds=()
+        local concat_file="/tmp/trim_concat.txt"
+        > "$concat_file"
+        for i in "${!segments[@]}"; do
+            local start end
+            read -r start end <<< "${segments[$i]}"
+            local temp="/tmp/trim_temp_${i}.${ext}"
+            extract_cmds+=("ffmpeg -y -i \"$input_file\" -ss $start -to $end -c copy \"$temp\"")
+            echo "file '$temp'" >> "$concat_file"
+            temp_files+=("\"$temp\"")
+        done
+        # Fixed: Use printf loop to join extracts reliably with " && "
+        local extracts
+        if [ ${#extract_cmds[@]} -gt 0 ]; then
+            extracts=$(printf "%s" "${extract_cmds[0]}")
+            for ((i=1; i<${#extract_cmds[@]}; i++)); do
+                extracts+=$(printf " && %s" "${extract_cmds[$i]}")
+            done
+        fi
+        local cleanup="rm \"$concat_file\" ${temp_files[*]}"
+        cmd="$extracts && ffmpeg -y -f concat -safe 0 -i \"$concat_file\" -c copy \"$output_file\" && $cleanup"
     fi
-    [ -z "$scale" ] && return
-    local output_file
-    output_file=$(get_output_file "$input_file" "_resized")
-    local cmd="ffmpeg -y -i \"$input_file\" -vf scale=$scale -c:v libx264 -crf 23 -preset fast -c:a copy \"$output_file\""
+    echo "$cmd" > /tmp/trim_cmd.txt  # Debug: Save the exact cmd to file for inspection
     echo "$cmd"
 }
-
 do_speed() {
     local input_file="$1"
     local speed

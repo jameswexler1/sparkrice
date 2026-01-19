@@ -63,6 +63,17 @@ lfcd () {
         [ -d "$dir" ] && [ "$dir" != "$(pwd)" ] && cd "$dir"
     fi
 }
+
+# Use nv as an interactive way of opening files directly with nvim
+
+nv() {
+  local file
+  file=$(fzf --preview='cat {}')
+  if [[ -n "$file" ]]; then
+    nvim "$file"
+  fi
+}
+
 bindkey -s '^o' '^ulfcd\n'
 
 bindkey -s '^a' '^ubc -lq\n'

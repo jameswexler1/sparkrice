@@ -1,46 +1,74 @@
 #!/bin/sh
-
 # A dmenu wrapper script for system functions.
 export WM="dwm"
 case "$(readlink -f /sbin/init)" in
-	*systemd*) ctl='systemctl' ;;
-	*) ctl='loginctl' ;;
+*systemd*) ctl='systemctl' ;;
+*) ctl='loginctl' ;;
 esac
-
 wmpid(){ # This function is needed if there are multiple instances of the window manager.
-	tree="$(pstree -ps $$)"
-	tree="${tree#*$WM(}"
-	echo "${tree%%)*}"
+tree="$(pstree -ps $$)"
+tree="${tree#*$WM(}"
+echo "${tree%%)*}"
 }
-
 lock(){
     mpc pause
     pauseallmpv
-    current=$(wpctl get-volume @DEFAULT_AUDIO_SINK@)
-    if echo "$current" | grep -q "\[MUTED\]"; then
-        was_muted=1
-    else
-        was_muted=0
-    fi
-    wpctl set-mute @DEFAULT_AUDIO_SINK@ 1
-    kill -44 $(pidof dwmblocks)
-    slock
-    if [ $was_muted -eq 1 ]; then
-        wpctl set-mute @DEFAULT_AUDIO_SINK@ 1
-    else
-        wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
-    fi
-    kill -44 $(pidof dwmblocks)
-}
 
+    # Detect current mute state (robustly)
+    was_muted=0
+    if current_mute=$(wpctl get-mute @DEFAULT_AUDIO_SINK@ 2>/dev/null); then
+        # wpctl get-mute typically prints something like "Muted: yes" or "yes"
+        if echo "$current_mute" | grep -qiE 'yes|true|1|muted'; then
+            was_muted=1
+        fi
+    else
+        # Fallback: inspect get-volume output for common "MUTED" markers
+        current_vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || true)
+        if echo "$current_vol" | grep -qiE '\[MUTED\]|MUTED|muted'; then
+            was_muted=1
+        fi
+    fi
+
+    # Mute now
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
+
+    # Tell dwmblocks to update (if running)
+    if pidof dwmblocks >/dev/null 2>&1; then
+        kill -44 $(pidof dwmblocks)
+    fi
+
+    # Start slock in background, record its PID, then force DPMS off after a short delay
+    slock &
+    slock_pid=$!
+
+    # small delay to allow slock to take effect before DPMS off
+    sleep 1
+    xset dpms force off
+
+    # Wait for slock to finish (i.e. user unlocks)
+    wait "$slock_pid" 2>/dev/null
+
+    # restore display and audio (after unlock)
+    xset dpms force on
+
+    if [ "$was_muted" -eq 1 ]; then
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
+    else
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true
+    fi
+
+    if pidof dwmblocks >/dev/null 2>&1; then
+        kill -44 $(pidof dwmblocks)
+    fi
+}
 case "$(printf "🔒 lock\n🚪 leave $WM\n♻️ renew $WM\n🐻 hibernate\n🔃 reboot\n🖥️shutdown\n💤 sleep\n📺 display off" | dmenu -i -p 'Action: ')" in
-	'🔒 lock') lock ;;
-	"🚪 leave $WM") kill -TERM "$(wmpid)" ;;
-	"♻️ renew $WM") kill -HUP "$(wmpid)" ;;
-	'🐻 hibernate') slock $ctl hibernate -i ;;
-	'💤 sleep') slock $ctl suspend -i ;;
-	'🔃 reboot') $ctl reboot -i ;;
-	'🖥️shutdown') $ctl poweroff -i ;;
-	'📺 display off') xset dpms force off ;;
-	*) exit 1 ;;
+'🔒 lock') lock ;;
+"🚪 leave $WM") kill -TERM "$(wmpid)" ;;
+"♻️ renew $WM") kill -HUP "$(wmpid)" ;;
+'🐻 hibernate') slock $ctl hibernate -i ;;
+'💤 sleep') slock $ctl suspend -i ;;
+'🔃 reboot') $ctl reboot -i ;;
+'🖥️shutdown') $ctl poweroff -i ;;
+'📺 display off') xset dpms force off ;;
+*) exit 1 ;;
 esac

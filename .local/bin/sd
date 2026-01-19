@@ -1,22 +1,57 @@
 #!/bin/sh
+# sd — open st in the same directory as the currently active window
+# Detached and quiet; tailored for st only.
 
-# Open a terminal window in the same directory as the currently active window.
+# Get active window id and PID
+active_window=$(xprop -root 2>/dev/null | sed -n 's/^.*_NET_ACTIVE_WINDOW.*# //p')
+windowPID=$(xprop -id "$active_window" 2>/dev/null | sed -n 's/^.*PID = //p')
 
-windowPID=$(xprop -id "$(xprop -root | sed -n "/_NET_ACTIVE_WINDOW/ s/^.*# // p")" | sed -n "/PID/ s/^.*= // p")
-PIDlist=$(pstree -lpATna "$windowPID" | sed -En 's/.*,([0-9]+).*/\1/p' | tac)
+# Fallback if we couldn't detect the active window PID
+[ -z "$windowPID" ] && windowPID=$$
+
+# Build a list of parent PIDs (walk up the tree)
+PIDlist=$(pstree -lpATna "$windowPID" 2>/dev/null | sed -En 's/.*,([0-9]+).*/\1/p' | tac)
+
+cwd=""
 for PID in $PIDlist; do
-	cmdline=$(ps -o args= -p "$PID")
-	process_group_leader=$(ps -o comm= -p "$(ps -o pgid= -p "$PID" | tr -d ' ')")
-	cwd=$(readlink /proc/"$PID"/cwd)
-	# zsh and lf won't be ignored even if it shows ~ or /
-	case "$cmdline" in
-		'lf -server') continue ;;
-		"${SHELL##*/}"|'lf'|'lf '*) break ;;
-	esac
-	# git (and its sub-processes) will show the root of a repository instead of the actual cwd, so they're ignored
-	[ "$process_group_leader" = 'git' ] || [ ! -d "$cwd" ] && continue
-	# This is to ignore programs that show ~ or / instead of the actual working directory
-	[ "$cwd" != "$HOME" ] && [ "$cwd" != '/' ] && break
+  [ -z "$PID" ] && continue
+  cmdline=$(ps -o args= -p "$PID" 2>/dev/null)
+  pgid=$(ps -o pgid= -p "$PID" 2>/dev/null | tr -d ' ')
+  process_group_leader=""
+  [ -n "$pgid" ] && process_group_leader=$(ps -o comm= -p "$pgid" 2>/dev/null)
+  if [ -d "/proc/$PID/cwd" ]; then
+    cwd_candidate=$(readlink "/proc/$PID/cwd" 2>/dev/null || true)
+  else
+    cwd_candidate=""
+  fi
+
+  case "$cmdline" in
+    'lf -server') continue ;;
+    "${SHELL##*/}"|'lf'|'lf '*)
+      [ -n "$cwd_candidate" ] && cwd="$cwd_candidate"
+      break
+      ;;
+  esac
+
+  # Ignore git processes (they report repo root)
+  [ "$process_group_leader" = "git" ] && continue
+  [ ! -d "$cwd_candidate" ] && continue
+
+  # Prefer real directories that aren't $HOME or /
+  if [ "$cwd_candidate" != "$HOME" ] && [ "$cwd_candidate" != "/" ]; then
+    cwd="$cwd_candidate"
+    break
+  fi
 done
-[ "$PWD" != "$cwd" ] && [ -d "$cwd" ] && { cd "$cwd" || exit 1; }
-"$TERMINAL"
+
+# fallback
+[ -z "$cwd" ] && cwd="$PWD"
+
+# Launch st, detached and quiet. No 'disown' to avoid job-control output.
+# If you prefer another command name, change the TERM_CMD variable.
+TERM_CMD="${TERMINAL:-st}"
+
+# Use setsid to fully detach, redirect all output to /dev/null
+setsid "$TERM_CMD" -e sh -c "cd '$cwd' && exec ${SHELL:-/bin/sh}" >/dev/null 2>&1 &
+
+exit 0
