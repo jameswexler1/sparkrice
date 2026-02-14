@@ -13,53 +13,25 @@ echo "${tree%%)*}"
 lock(){
     mpc pause
     pauseallmpv
-
-    # Detect current mute state (robustly)
-    was_muted=0
-    if current_mute=$(wpctl get-mute @DEFAULT_AUDIO_SINK@ 2>/dev/null); then
-        # wpctl get-mute typically prints something like "Muted: yes" or "yes"
-        if echo "$current_mute" | grep -qiE 'yes|true|1|muted'; then
-            was_muted=1
-        fi
+    current=$(wpctl get-volume @DEFAULT_AUDIO_SINK@)
+    if echo "$current" | grep -q "\[MUTED\]"; then
+        was_muted=1
     else
-        # Fallback: inspect get-volume output for common "MUTED" markers
-        current_vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || true)
-        if echo "$current_vol" | grep -qiE '\[MUTED\]|MUTED|muted'; then
-            was_muted=1
-        fi
+        was_muted=0
     fi
-
-    # Mute now
-    wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
-
-    # Tell dwmblocks to update (if running)
-    if pidof dwmblocks >/dev/null 2>&1; then
-        kill -44 $(pidof dwmblocks)
-    fi
-
-    # Start slock in background, record its PID, then force DPMS off after a short delay
-    slock &
-    slock_pid=$!
-
-    # small delay to allow slock to take effect before DPMS off
-    sleep 1
-    xset dpms force off
-
-    # Wait for slock to finish (i.e. user unlocks)
-    wait "$slock_pid" 2>/dev/null
-
-    # restore display and audio (after unlock)
-    xset dpms force on
-
-    if [ "$was_muted" -eq 1 ]; then
-        wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 1
+    kill -44 $(pidof dwmblocks)
+    # Lock and force display off after a short delay
+    (slock && xset dpms force on) & # Restore on after unlock if needed
+    lock_pid=$!
+    sleep 1 && xset dpms force off # Adjust sleep duration as needed (1-10s)
+    wait $lock_pid
+    if [ $was_muted -eq 1 ]; then
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ 1
     else
-        wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
     fi
-
-    if pidof dwmblocks >/dev/null 2>&1; then
-        kill -44 $(pidof dwmblocks)
-    fi
+    kill -44 $(pidof dwmblocks)
 }
 case "$(printf "🔒 lock\n🚪 leave $WM\n♻️ renew $WM\n🐻 hibernate\n🔃 reboot\n🖥️shutdown\n💤 sleep\n📺 display off" | dmenu -i -p 'Action: ')" in
 '🔒 lock') lock ;;

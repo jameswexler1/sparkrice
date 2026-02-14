@@ -403,3 +403,7 @@ desc = "Extract selected/hovered file"
 on = [ "g" , "l" ]
 run = "plugin share-localsend --args=%s"  # Passes selected files as args
 desc = "Share selected files with LocalSend and center the window"
+[[mgr.prepend_keymap]]
+on = "b"
+run = "shell 'setbg %h'"
+desc = "Set hovered image as background"
