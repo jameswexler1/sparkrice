@@ -1,0 +1,37 @@
+#!/bin/bash
+set -e
+
+SOURCE_DIR="$HOME/.local/share/PrismLauncher/instances/Create Server 1.20.1 v.1.1 1.20.1/minecraft/mods"
+BACKUP_DIR="$HOME/trapacabackup"
+MOD_PATTERN="advanced-xray-fabric-1.20.1-*.jar"
+
+mkdir -p "$BACKUP_DIR"
+
+case "$1" in
+    --restitute)
+        shopt -s nullglob
+        files=("$BACKUP_DIR"/$MOD_PATTERN)
+
+        if [ ${#files[@]} -gt 0 ]; then
+            mv "${files[0]}" "$SOURCE_DIR/"
+            echo "Mod restored: $(basename "${files[0]}")"
+        else
+            echo "No backup found to restore."
+        fi
+        ;;
+    "")
+        shopt -s nullglob
+        files=("$SOURCE_DIR"/$MOD_PATTERN)
+
+        if [ ${#files[@]} -gt 0 ]; then
+            mv "${files[0]}" "$BACKUP_DIR/"
+            echo "Mod backed up: $(basename "${files[0]}")"
+        else
+            echo "No matching mod found to back up."
+        fi
+        ;;
+    *)
+        echo "Usage: $0 [--restitute]"
+        exit 1
+        ;;
+esac

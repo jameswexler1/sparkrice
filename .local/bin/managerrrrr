@@ -1,12 +1,9 @@
 #!/bin/bash
-
 # Disable core dumps to prevent sensitive data in memory dumps
 ulimit -c 0
-
 # Set options for safer script execution
 set -euo pipefail
 IFS=$'\n\t'
-
 # Notification function (moved early)
 notify() {
     if [ "${USE_GUI:-0}" = 1 ]; then
@@ -15,21 +12,16 @@ notify() {
         echo "$1"
     fi
 }
-
 DB_DIR="$HOME/Documents/database_files_organization"
-
 # Lock against concurrent runs
 exec 9>"$DB_DIR/.lock"
 flock -n 9 || { echo "Already running"; exit 1; }
-
 # Set strict umask for new files/dirs (user-only access)
 umask 077
-
 # Custom private temp base dir under DB_DIR (create if needed)
 PRIVATE_TMP_BASE="$DB_DIR/tmp"
 mkdir -p "$PRIVATE_TMP_BASE"
-chmod 700 "$PRIVATE_TMP_BASE"  # Ensure it's private
-
+chmod 700 "$PRIVATE_TMP_BASE" # Ensure it's private
 # Create unique temp dir for this run
 TEMP_DIR=$(mktemp -d -p "$PRIVATE_TMP_BASE" tmp.XXXXXXXXXX)
 if [ $? -ne 0 ]; then
@@ -37,34 +29,32 @@ if [ $? -ne 0 ]; then
     TEMP_DIR=$(mktemp -d /tmp/managerrrrr.XXXXXXXXXX)
     chmod 700 "$TEMP_DIR"
 fi
-
 # Cleanup function for temp dir (moved early)
 cleanup() {
     rm -rf "$TEMP_DIR"
     notify "Temporary files cleaned up."
 }
-trap cleanup EXIT INT TERM  # Clean on exit or interrupt
-
+trap cleanup EXIT INT TERM # Clean on exit or interrupt
 DB_GPG="$DB_DIR/docs.db.gpg"
 GPG_ID_FILE="$DB_DIR/.gpg-id"
-TEMP_DB="$TEMP_DIR/docs.db"  # No need for $$ now, since dir is unique
+TEMP_DB="$TEMP_DIR/docs.db" # No need for $$ now, since dir is unique
 BACKUP_DIR="$DB_DIR/backups"
 BACKUP_RETENTION=7 # Number of days to keep backups
 INSTRUCTIONS_DIR="$HOME/Documents/Instructions"
-
+SECURE_DIR="$INSTRUCTIONS_DIR/secure_instructions"
+mkdir -p "$SECURE_DIR"
+chmod 700 "$SECURE_DIR"
 # Detect if GUI is available
 if [ -n "${DISPLAY:-}" ] && command -v dmenu >/dev/null && command -v notify-send >/dev/null; then
     USE_GUI=1
 else
     USE_GUI=0
 fi
-
 # Override for CLI mode if --cli is passed
 if [ "${1:-}" = "--cli" ]; then
     USE_GUI=0
     shift
 fi
-
 # Clipboard function
 get_clipboard() {
     if [ "${USE_GUI:-0}" = 1 ]; then
@@ -73,12 +63,10 @@ get_clipboard() {
         echo ""
     fi
 }
-
 # SQL escape function
 sql_escape() {
     echo "$1" | sed "s/'/''/g"
 }
-
 # Input functions
 get_input() {
     local prompt="$1"
@@ -90,7 +78,6 @@ get_input() {
         echo "${input:-$default}"
     fi
 }
-
 get_choice() {
     local options="$1"
     local prompt="$2"
@@ -103,7 +90,6 @@ get_choice() {
         done
     fi
 }
-
 select_from_list() {
     local items="$1"
     local prompt="$2"
@@ -115,7 +101,6 @@ select_from_list() {
         echo "$sel"
     fi
 }
-
 get_confirm() {
     local prompt="$1"
     if [ "${USE_GUI:-0}" = 1 ]; then
@@ -129,7 +114,6 @@ get_confirm() {
         fi
     fi
 }
-
 # Ensure dir exists
 mkdir -p "$DB_DIR"
 if [ ! -d "$DB_DIR" ]; then
@@ -138,7 +122,6 @@ if [ ! -d "$DB_DIR" ]; then
 else
     notify "Directory ensured: $DB_DIR"
 fi
-
 # First-time setup for GPG ID
 if [ ! -f "$GPG_ID_FILE" ]; then
     notify "Starting GPG ID setup..."
@@ -166,20 +149,21 @@ if [ ! -f "$GPG_ID_FILE" ]; then
 fi
 GPG_RECIPIENT=$(cat "$GPG_ID_FILE")
 notify "Using GPG recipient: $GPG_RECIPIENT"
-
 # Decrypt or create DB
 if [ -f "$DB_GPG" ]; then
     notify "Encrypted database found. Decrypting..."
     if gpg --quiet --batch --yes --decrypt "$DB_GPG" > "$TEMP_DB"; then
-        chmod 600 "$TEMP_DB"  # Ensure strict perms on decrypted DB
+        chmod 600 "$TEMP_DB" # Ensure strict perms on decrypted DB
         notify "Database decrypted successfully."
+        # Add is_sensitive column if missing
+        sqlite3 "$TEMP_DB" "ALTER TABLE documents ADD COLUMN is_sensitive INTEGER DEFAULT 0;" 2>/dev/null || true
     else
         notify "Decryption failed. Check passphrase."
         exit 1
     fi
 else
     notify "No encrypted database found. Creating new database..."
-    if sqlite3 "$TEMP_DB" "CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY AUTOINCREMENT, actual_name TEXT NOT NULL, type TEXT NOT NULL, location TEXT NOT NULL, descriptions TEXT, notes TEXT);"; then
+    if sqlite3 "$TEMP_DB" "CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY AUTOINCREMENT, actual_name TEXT NOT NULL, type TEXT NOT NULL, location TEXT NOT NULL, descriptions TEXT, notes TEXT, is_sensitive INTEGER DEFAULT 0);"; then
         chmod 600 "$TEMP_DB"
         notify "New database created successfully."
     else
@@ -195,7 +179,6 @@ else
         exit 1
     fi
 fi
-
 # Function to re-encrypt and backup
 re_encrypt() {
     notify "Changes detected. Re-encrypting database..."
@@ -212,16 +195,14 @@ re_encrypt() {
         notify "Re-encryption failed."
     fi
 }
-
 # Handle CLI arguments if provided
 if [ $# -gt 0 ]; then
     mode="$1"
     shift
     query="$*"
 else
-    mode=$(get_choice "Search\nAdd\nRemove\nEdit\nIndex Instructions\nBulk Edit\nQuit" "Document Manager")
+    mode=$(get_choice "Search\nAdd\nRemove\nEdit\nIndex Instructions\nBulk Edit\nCreate Secure Instruction\nAdd Secure Instruction\nQuit" "Document Manager")
 fi
-
 changed=0
 case "$mode" in
     Add)
@@ -238,12 +219,13 @@ case "$mode" in
         [ -z "$location" ] && exit
         descriptions=$(get_input "Descriptions/aliases (comma-separated, e.g., birth cert,official record)" "")
         notes=$(get_input "Optional notes" "")
+        is_sensitive=0
         actual_name_esc=$(sql_escape "$actual_name")
         type_esc=$(sql_escape "$type")
         location_esc=$(sql_escape "$location")
         descriptions_esc=$(sql_escape "$descriptions")
         notes_esc=$(sql_escape "$notes")
-        sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes) VALUES ('$actual_name_esc', '$type_esc', '$location_esc', '$descriptions_esc', '$notes_esc');"
+        sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes, is_sensitive) VALUES ('$actual_name_esc', '$type_esc', '$location_esc', '$descriptions_esc', '$notes_esc', $is_sensitive);"
         notify "Added: $actual_name"
         changed=1
         ;;
@@ -258,7 +240,7 @@ case "$mode" in
             word_esc=$(sql_escape "$word_lower")
             conditions="$conditions AND (LOWER(actual_name) LIKE '%$word_esc%' OR LOWER(descriptions) LIKE '%$word_esc%' OR LOWER(location) LIKE '%$word_esc%')"
         done
-        results=$(sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location FROM documents WHERE $conditions;")
+        results=$(sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location, is_sensitive FROM documents WHERE $conditions;")
         if [ -z "$results" ]; then
             notify "No matches for '$query'"
             exit
@@ -267,12 +249,13 @@ case "$mode" in
         selected=$(select_from_list "$formatted_results" "Matches")
         if [ -n "$selected" ]; then
             id=$(echo "$selected" | awk -F '|' '{print $2}' | sed 's/id://')
-            entry=$(sqlite3 "$TEMP_DB" "SELECT actual_name, type, location, descriptions, notes FROM documents WHERE id=$id;")
+            entry=$(sqlite3 "$TEMP_DB" "SELECT actual_name, type, location, descriptions, notes, is_sensitive FROM documents WHERE id=$id;")
             actual_name=$(echo "$entry" | cut -d '|' -f 1)
             type=$(echo "$entry" | cut -d '|' -f 2)
             location=$(echo "$entry" | cut -d '|' -f 3)
             descriptions=$(echo "$entry" | cut -d '|' -f 4)
             notes=$(echo "$entry" | cut -d '|' -f 5)
+            is_sensitive=$(echo "$entry" | cut -d '|' -f 6)
             if [ "$type" = "instruction" ]; then
                 details="Descriptions: $descriptions\nNotes: $notes"
             else
@@ -288,12 +271,47 @@ case "$mode" in
                 if [ "$open_confirm" = "Yes" ]; then
                     if [ -f "$location" ]; then
                         ext="${location##*.}"
+                        open_path="$location"
+                        if [ "$is_sensitive" = 1 ]; then
+                            decrypted_temp="$TEMP_DIR/decrypted_$(basename "${location%.gpg}")"
+                            if gpg --quiet --batch --yes --decrypt "$location" > "$decrypted_temp"; then
+                                chmod 600 "$decrypted_temp"
+                                notify "Decrypted secure instruction for opening."
+                                open_path="$decrypted_temp"
+                                temp_mtime=$(stat -c %Y "$decrypted_temp")
+                            else
+                                notify "Decryption failed for secure file."
+                                continue
+                            fi
+                        fi
                         if [ "$ext" = "md" ] || [ "$ext" = "txt" ] || [ "$type" = "instruction" ]; then
-                            st -e nvim "$location" &
-                            notify "Opening in nvim: $location"
+                            if [ "${USE_GUI:-0}" = 1 ]; then
+                                st -e nvim "$open_path" &
+                            else
+                                nvim "$open_path" &
+                            fi
+                            pid=$!
+                            wait $pid
+                            notify "Opened in nvim: $open_path"
+                            if [ "$is_sensitive" = 1 ]; then
+                                new_mtime=$(stat -c %Y "$decrypted_temp")
+                                if [ "$new_mtime" -gt "$temp_mtime" ]; then
+                                    if gpg --quiet --batch --yes --encrypt --recipient "$GPG_RECIPIENT" --output "$location" "$decrypted_temp"; then
+                                        notify "Re-encrypted after changes."
+                                        changed=1
+                                    else
+                                        notify "Re-encryption failed after edit."
+                                    fi
+                                fi
+                                rm "$decrypted_temp"
+                            fi
                         else
-                            xdg-open "$location" &
-                            notify "Opening: $location"
+                            xdg-open "$open_path" &
+                            notify "Opening: $open_path"
+                            if [ "$is_sensitive" = 1 ]; then
+                                # For non-text, assume no edit, just view
+                                rm "$decrypted_temp"
+                            fi
                         fi
                     else
                         notify "File not found: $location"
@@ -350,12 +368,13 @@ case "$mode" in
         selected=$(select_from_list "$formatted_results" "Select to edit")
         if [ -n "$selected" ]; then
             id=$(echo "$selected" | awk -F '|' '{print $2}' | sed 's/id://')
-            current=$(sqlite3 "$TEMP_DB" "SELECT actual_name, type, location, descriptions, notes FROM documents WHERE id=$id;")
+            current=$(sqlite3 "$TEMP_DB" "SELECT actual_name, type, location, descriptions, notes, is_sensitive FROM documents WHERE id=$id;")
             actual_name=$(echo "$current" | cut -d '|' -f 1)
             type=$(echo "$current" | cut -d '|' -f 2)
             location=$(echo "$current" | cut -d '|' -f 3)
             descriptions=$(echo "$current" | cut -d '|' -f 4)
             notes=$(echo "$current" | cut -d '|' -f 5)
+            is_sensitive=$(echo "$current" | cut -d '|' -f 6)
             temp_file="$TEMP_DIR/doc_edit.tmp"
             cat > "$temp_file" << EOF
 # Edit the values below. Keep the exact format: key="value" (quotes around value if it has spaces/commas).
@@ -367,6 +386,7 @@ type="$type" # Must be 'physical', 'digital', or 'instruction'
 location="$location"
 descriptions="$descriptions" # Comma-separated, e.g., "birth cert,official record"
 notes="$notes"
+is_sensitive="$is_sensitive" # 0 or 1
 EOF
             chmod 600 "$temp_file"
             notify "Launching nvim on $temp_file"
@@ -380,12 +400,17 @@ EOF
             new_location=$(grep '^location=' "$temp_file" | sed -E 's/^location="([^"]*)".*$/\1/' 2>/dev/null || echo "")
             new_descriptions=$(grep '^descriptions=' "$temp_file" | sed -E 's/^descriptions="([^"]*)".*$/\1/' 2>/dev/null || echo "")
             new_notes=$(grep '^notes=' "$temp_file" | sed -E 's/^notes="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+            new_is_sensitive=$(grep '^is_sensitive=' "$temp_file" | sed -E 's/^is_sensitive="([^"]*)".*$/\1/' 2>/dev/null || echo "0")
             if [ -n "$new_actual_name" ] && [ -n "$new_type" ] && [ -n "$new_location" ]; then
                 # Validate type
                 case "$new_type" in
                     physical|digital|instruction) ;;
                     *) notify "Invalid type '$new_type'"; continue ;;
                 esac
+                # Validate is_sensitive
+                if [ "$new_is_sensitive" != 0 ] && [ "$new_is_sensitive" != 1 ]; then
+                    new_is_sensitive=0
+                fi
                 # Check for dangerous characters
                 case "$new_actual_name$new_type$new_location$new_descriptions$new_notes" in
                     *";"*|*$'\n'*) notify "Invalid characters detected; skipping entry"; continue ;;
@@ -395,7 +420,7 @@ EOF
                 new_location_esc=$(sql_escape "$new_location")
                 new_descriptions_esc=$(sql_escape "$new_descriptions")
                 new_notes_esc=$(sql_escape "$new_notes")
-                sqlite3 "$TEMP_DB" "UPDATE documents SET actual_name='$new_actual_name_esc', type='$new_type_esc', location='$new_location_esc', descriptions='$new_descriptions_esc', notes='$new_notes_esc' WHERE id=$id;"
+                sqlite3 "$TEMP_DB" "UPDATE documents SET actual_name='$new_actual_name_esc', type='$new_type_esc', location='$new_location_esc', descriptions='$new_descriptions_esc', notes='$new_notes_esc', is_sensitive=$new_is_sensitive WHERE id=$id;"
                 notify "Updated entry $id"
                 changed=1
             else
@@ -408,14 +433,19 @@ EOF
         mkdir -p "$INSTRUCTIONS_DIR" # Ensure it exists
         while IFS= read -r -d '' file; do
             filename=$(basename "$file")
-            if [ "${file##*.}" = "md" ] || [ "${file##*.}" = "txt" ]; then # Filter text files
+            ext="${file##*.}"
+            if [ "$ext" = "md" ] || [ "$ext" = "txt" ] || [ "$ext" = "gpg" ]; then # Filter text and gpg files
                 location_esc=$(sql_escape "$file")
                 filename_esc=$(sql_escape "$filename")
                 # Check if exists
                 exists=$(sqlite3 "$TEMP_DB" "SELECT id FROM documents WHERE location='$location_esc';")
                 if [ -z "$exists" ]; then
                     descriptions_esc=$(sql_escape "$(echo "$filename" | sed 's/_/ /g; s/\..*//')") # Simple keyword gen from name
-                    sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes) VALUES ('$filename_esc', 'instruction', '$location_esc', '$descriptions_esc', '');"
+                    is_sensitive=0
+                    if [[ "$file" == *"$SECURE_DIR"* && "$ext" = "gpg" ]]; then
+                        is_sensitive=1
+                    fi
+                    sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes, is_sensitive) VALUES ('$filename_esc', 'instruction', '$location_esc', '$descriptions_esc', '', $is_sensitive);"
                     notify "Added instruction: $filename"
                     changed=1
                 fi
@@ -433,7 +463,7 @@ EOF
         echo "# Save and quit nvim to apply. Invalid formats will skip entries." >> "$temp_file"
         echo "# Types must be 'physical', 'digital', or 'instruction'." >> "$temp_file"
         echo "---" >> "$temp_file"
-        sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location, descriptions, notes FROM documents ORDER BY id;" | while IFS='|' read -r id actual_name type location descriptions notes; do
+        sqlite3 "$TEMP_DB" "SELECT id, actual_name, type, location, descriptions, notes, is_sensitive FROM documents ORDER BY id;" | while IFS='|' read -r id actual_name type location descriptions notes is_sensitive; do
             cat >> "$temp_file" << EOF
 id="$id" # READ-ONLY: Do not edit!
 actual_name="$actual_name"
@@ -441,6 +471,7 @@ type="$type"
 location="$location"
 descriptions="$descriptions"
 notes="$notes"
+is_sensitive="$is_sensitive"
 ---
 EOF
         done
@@ -454,7 +485,7 @@ EOF
         # Reload from edited file
         notify "Reloading database from bulk edit file..."
         new_temp="$TEMP_DIR/docs_new.db"
-        sqlite3 "$new_temp" "CREATE TABLE documents (id INTEGER PRIMARY KEY AUTOINCREMENT, actual_name TEXT NOT NULL, type TEXT NOT NULL, location TEXT NOT NULL, descriptions TEXT, notes TEXT);"
+        sqlite3 "$new_temp" "CREATE TABLE documents (id INTEGER PRIMARY KEY AUTOINCREMENT, actual_name TEXT NOT NULL, type TEXT NOT NULL, location TEXT NOT NULL, descriptions TEXT, notes TEXT, is_sensitive INTEGER DEFAULT 0);"
         chmod 600 "$new_temp"
         awk 'BEGIN {RS="---\n"; ORS="\0"} NR>1 {print $0}' "$temp_file" | while read -r -d '' section; do
             if [ -n "$section" ]; then
@@ -464,12 +495,17 @@ EOF
                 location=$(echo "$section" | grep '^location=' | sed -E 's/^location="([^"]*)".*$/\1/' 2>/dev/null || echo "")
                 descriptions=$(echo "$section" | grep '^descriptions=' | sed -E 's/^descriptions="([^"]*)".*$/\1/' 2>/dev/null || echo "")
                 notes=$(echo "$section" | grep '^notes=' | sed -E 's/^notes="([^"]*)".*$/\1/' 2>/dev/null || echo "")
+                is_sensitive=$(echo "$section" | grep '^is_sensitive=' | sed -E 's/^is_sensitive="([^"]*)".*$/\1/' 2>/dev/null || echo "0")
                 if [ -n "$id" ] && [ -n "$actual_name" ] && [ -n "$type" ] && [ -n "$location" ]; then
                     # Validate type
                     case "$type" in
                         physical|digital|instruction) ;;
                         *) notify "Invalid type '$type' for id $id; skipping"; continue ;;
                     esac
+                    # Validate is_sensitive
+                    if [ "$is_sensitive" != 0 ] && [ "$is_sensitive" != 1 ]; then
+                        is_sensitive=0
+                    fi
                     # Check for dangerous characters
                     case "$actual_name$type$location$descriptions$notes" in
                         *";"*|*$'\n'*) notify "Invalid characters detected for id $id; skipping"; continue ;;
@@ -479,7 +515,7 @@ EOF
                     location_esc=$(sql_escape "$location")
                     descriptions_esc=$(sql_escape "$descriptions")
                     notes_esc=$(sql_escape "$notes")
-                    sqlite3 "$new_temp" "INSERT INTO documents (id, actual_name, type, location, descriptions, notes) VALUES ($id, '$actual_name_esc', '$type_esc', '$location_esc', '$descriptions_esc', '$notes_esc');"
+                    sqlite3 "$new_temp" "INSERT INTO documents (id, actual_name, type, location, descriptions, notes, is_sensitive) VALUES ($id, '$actual_name_esc', '$type_esc', '$location_esc', '$descriptions_esc', '$notes_esc', $is_sensitive);"
                 else
                     notify "Skipped invalid section for id: $id"
                 fi
@@ -489,14 +525,85 @@ EOF
         notify "Bulk changes applied (skipped any invalid sections)."
         changed=1
         ;;
+    "Create Secure Instruction")
+        temp_file="$TEMP_DIR/new_secure_instruction.md"
+        touch "$temp_file"
+        chmod 600 "$temp_file"
+        notify "Launching nvim for new secure instruction."
+        if [ "${USE_GUI:-0}" = 1 ]; then
+            st -e nvim "$temp_file"
+        else
+            nvim "$temp_file"
+        fi
+        if [ -s "$temp_file" ]; then  # If not empty
+            actual_name=$(get_input "Name for secure instruction (e.g., sensitive_guide.md)" "")
+            [ -z "$actual_name" ] && { notify "No name provided; aborting."; rm "$temp_file"; exit; }
+            encrypted_name="${actual_name}.gpg"
+            encrypted_path="$SECURE_DIR/$encrypted_name"
+            if [ -f "$encrypted_path" ]; then
+                notify "File already exists: $encrypted_path"
+                rm "$temp_file"
+                exit
+            fi
+            if gpg --quiet --batch --yes --encrypt --recipient "$GPG_RECIPIENT" --output "$encrypted_path" "$temp_file"; then
+                notify "Created and encrypted: $encrypted_path"
+                # Add to DB
+                actual_name_esc=$(sql_escape "$actual_name")
+                descriptions=$(get_input "Descriptions/aliases (comma-separated)" "")
+                descriptions_esc=$(sql_escape "$descriptions")
+                notes=$(get_input "Optional notes" "")
+                notes_esc=$(sql_escape "$notes")
+                sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes, is_sensitive) VALUES ('$actual_name_esc', 'instruction', '$(sql_escape "$encrypted_path")', '$descriptions_esc', '$notes_esc', 1);"
+                changed=1
+            else
+                notify "Encryption failed."
+            fi
+        else
+            notify "Empty file; not saving."
+        fi
+        rm "$temp_file"
+        ;;
+    "Add Secure Instruction")
+        notify "Listing instructions to secure..."
+        files=$(find "$INSTRUCTIONS_DIR" -maxdepth 1 -type f \( -name "*.md" -o -name "*.txt" \) -printf "%f\n")  # List only top-level, non-gpg files
+        if [ -z "$files" ]; then
+            notify "No eligible files found."
+            exit
+        fi
+        selected_file=$(select_from_list "$files" "Select file to secure")
+        if [ -n "$selected_file" ]; then
+            original_path="$INSTRUCTIONS_DIR/$selected_file"
+            encrypted_name="${selected_file}.gpg"
+            encrypted_path="$SECURE_DIR/$encrypted_name"
+            if [ -f "$encrypted_path" ]; then
+                notify "Encrypted version already exists: $encrypted_path"
+                exit
+            fi
+            if gpg --quiet --batch --yes --encrypt --recipient "$GPG_RECIPIENT" --output "$encrypted_path" "$original_path"; then
+                rm "$original_path"  # Remove original after success
+                notify "Encrypted and moved: $selected_file to $encrypted_path"
+                # Update or add to DB
+                exists=$(sqlite3 "$TEMP_DB" "SELECT id FROM documents WHERE location='$(sql_escape "$original_path")';")
+                if [ -n "$exists" ]; then
+                    sqlite3 "$TEMP_DB" "UPDATE documents SET location='$(sql_escape "$encrypted_path")', is_sensitive=1 WHERE id=$exists;"
+                else
+                    # Add if not indexed yet
+                    actual_name_esc=$(sql_escape "$selected_file")
+                    descriptions_esc=$(sql_escape "$(echo "$selected_file" | sed 's/_/ /g; s/\..*//')")
+                    sqlite3 "$TEMP_DB" "INSERT INTO documents (actual_name, type, location, descriptions, notes, is_sensitive) VALUES ('$actual_name_esc', 'instruction', '$(sql_escape "$encrypted_path")', '$descriptions_esc', '', 1);"
+                fi
+                changed=1
+            else
+                notify "Encryption failed."
+            fi
+        fi
+        ;;
     Quit|*)
         ;;
 esac
-
 # Re-encrypt if changed
 if [ "$changed" = 1 ]; then
     re_encrypt
 fi
-
 # Clean up (trap handles it, but explicit for notify)
 notify "Script execution complete."

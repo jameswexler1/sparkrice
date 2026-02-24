@@ -16,7 +16,7 @@ if echo "$TEXT" | grep -qE "^(What|Which|Who|Where|When|Why|How).*?(A\)|[0-9]\.|
     MODEL="flash"
 else
     # Ask user to choose model
-    MODEL=$(printf "flash\npro" | dmenu -i -p "Model for written question? (flash=fast, pro=strong):")
+MODEL=$(printf "flash\npro\nopen" | dmenu -i -p "Model for written question? (flash=fast MCQ, pro=brief, open=full essay):")
     [ -z "$MODEL" ] && exit 1
 fi
 
@@ -26,14 +26,14 @@ ANSWER=$(echo "$TEXT" | ~/.local/bin/askgemini.py --model "$MODEL")
 # 5. Show in dmenu
 if echo "$ANSWER" | grep -q '^\*'; then
     # Bullet list → each bullet is a separate entry
-    echo "$ANSWER" | sed 's/^\* \+//' | dmenu -i -p "Cheater:"
+    echo "$ANSWER" | sed 's/^\* \+//' | dmenu -i -p "Hehe:"
 else
     # Long paragraph → split by punctuation
     # Remove newlines
     clean=$(echo "$ANSWER" | tr '\n' ' ' | sed 's/  */ /g')
     # Split at punctuation marks and keep them
     # This produces one entry per sentence/chunk
-    echo "$clean" | sed 's/\([.!?,;]\)/\1\n/g' | sed '/^[[:space:]]*$/d' | dmenu -i -p "Cheater:"
+    echo "$clean" | sed 's/\([.!?,;]\)/\1\n/g' | sed '/^[[:space:]]*$/d' | dmenu -i -p "Hehe:"
 fi
 
 # 6. Copy to clipboard

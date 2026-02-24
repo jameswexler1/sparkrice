@@ -55,7 +55,8 @@ alias \
 	xr="sudo xbps-remove -R" \
 	xq="xbps-query" \
 	za="zathura" \
-	cd="z"
+	cd="z" \
+	scim="sc-im"
 
 alias \
 	lf="lfub" \
