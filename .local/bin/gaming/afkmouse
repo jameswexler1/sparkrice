@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Fixed & improved version – Global anti-AFK for X11 Minecraft
+# • Only ONE bash process (no more immortal orphans!)
+# • Proper trap that kills everything on Ctrl+C / kill
+# • mouse(), keys() and combo() are now clean functions
+# • Same behaviour as your original, but actually stops when you tell it to
+
+# HOW TO USE
+
+# chmod +x anti-afk.sh
+# ./anti-afk.sh          # default = combo
+# ./anti-afk.sh mouse    # only mouse spins
+# ./anti-afk.sh keys     # only WASD walks
+
+
+
+set -euo pipefail
+
+MODE="${1:-combo}"
+echo "Starting anti-AFK in '$MODE' mode (global, smooth)."
+echo "Focus Minecraft now! Press Ctrl+C to stop."
+sleep 5
+
+# Clean up on exit (keys + any background jobs)
+trap '
+    echo "Stopping..."
+    xdotool keyup w a s d space 2>/dev/null || true
+    kill $(jobs -p) 2>/dev/null || true
+    exit 0
+' INT TERM EXIT
+
+# ──────────────────────────────────────────────────────────────
+# One full mouse spin cycle (smooth polar circles)
+# ──────────────────────────────────────────────────────────────
+mouse() {
+    STEP_ANGLE=6
+    DIST_PER_STEP=3
+    sleep 2
+
+    # Clockwise
+    for i in $(seq 0 59); do
+        angle=$((i * STEP_ANGLE))
+        xdotool mousemove_relative --polar "$angle" "$DIST_PER_STEP"
+        sleep 0.015
+    done
+
+    # Counter-clockwise (resets view gently)
+    for i in $(seq 0 59); do
+        angle=$((i * STEP_ANGLE * -1))
+        xdotool mousemove_relative --polar "$angle" "$DIST_PER_STEP"
+        sleep 0.015
+    done
+
+    sleep 20
+}
+
+# ──────────────────────────────────────────────────────────────
+# One full square-walk cycle + random action
+# ──────────────────────────────────────────────────────────────
+keys() {
+    for key in w a s d; do
+        xdotool keydown "$key"
+        sleep 6
+        xdotool keyup "$key"
+        sleep 0.4
+    done
+
+    # 70% jump, 30% right-click
+    if [ $((RANDOM % 10)) -lt 7 ]; then
+        xdotool key space
+    else
+        xdotool click 3
+    fi
+
+    sleep 25
+}
+
+# ──────────────────────────────────────────────────────────────
+# Main loop
+# ──────────────────────────────────────────────────────────────
+while true; do
+    case "$MODE" in
+        mouse)
+            mouse
+            ;;
+        keys)
+            keys
+            ;;
+        combo)
+            echo "Smooth spin + walk cycle..."
+            mouse & wait          # one spin cycle → wait for it
+            keys  & wait          # one walk cycle → wait for it
+            sleep 15
+            ;;
+        *)
+            echo "Usage: $0 [mouse|keys|combo]"
+            exit 1
+            ;;
+    esac
+done

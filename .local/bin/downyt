@@ -1,10 +1,9 @@
-
-
 #!/bin/bash
 # yt-dl-dmenu.sh: Download YouTube/Instagram/etc. with clipboard integration and status notifications
 # Features:
-# - Detects playlist URLs and notifies user
-# - Cleans URLs to download only the intended video
+# - Detects playlist URLs and prompts user to choose single video or entire playlist
+# - Cleans URLs to download only the intended video if chosen
+# - For playlists, downloads into a subfolder named after the playlist title
 # - Audio downloads in opus
 # - Video downloads in MP4 (best quality)
 # - Clipboard + dmenu input
@@ -20,22 +19,51 @@ download_type=$(printf "Audio\nVideo" | dmenu -p "Choose download type:")
 clipboard_content=$(xclip -o -selection clipboard 2>/dev/null)
 url=$(echo "$clipboard_content" | dmenu -p "Enter URL:")
 
+# Initialize variables
+download_url="$url"
+playlist_option="--no-playlist"
+is_playlist=false
+playlist_title=""
+
 # Check if URL is a playlist (look for list= parameter)
 if echo "$url" | grep -q "[?&]list="; then
-    notify-send "yt-dl" "Playlist detected. Cleaning URL to download only the single video."
+    notify-send "yt-dl" "Playlist detected."
+    playlist_choice=$(printf "Single video\nEntire playlist" | dmenu -p "Download:")
+    [ -z "$playlist_choice" ] && notify-send "yt-dl" "No choice selected. Exiting." && exit 1
+
+    if [ "$playlist_choice" = "Entire playlist" ]; then
+        download_url="$url"
+        playlist_option=""
+        is_playlist=true
+        # Fetch playlist title for folder and notification
+        playlist_title=$(yt-dlp --get-filename -o "%(playlist_title)s" "$download_url" 2>/dev/null | head -n1)
+        if [ -z "$playlist_title" ]; then
+            notify-send "yt-dl" "Could not fetch playlist title. Using default folder name."
+            playlist_title="Playlist"
+        fi
+    else
+        # Clean URL to remove playlist parameters (list, index)
+        download_url=$(echo "$url" | sed -E 's/[?&]list=[^&]+//g; s/[?&]index=[^&]+//g')
+        playlist_option="--no-playlist"
+        is_playlist=false
+    fi
 fi
 
-# Clean URL to remove playlist parameters (list, index)
-clean_url=$(echo "$url" | sed -E 's/[?&]list=[^&]+//g; s/[?&]index=[^&]+//g')
+# Set output template based on playlist choice
+if [ "$is_playlist" = true ]; then
+    output_template="${OUTPUT_DIR}/${playlist_title}/%(title)s.%(ext)s"
+else
+    output_template="${OUTPUT_DIR}/%(title)s.%(ext)s"
+fi
 
 # Validate URL
-if ! echo "$clean_url" | grep -qE "^https?://"; then
+if ! echo "$download_url" | grep -qE "^https?://"; then
     notify-send "yt-dl" "That doesn't look like a valid URL. Exiting."
     exit 1
 fi
 
 # Check if yt-dlp finds any downloadable media
-test_filename=$(yt-dlp --no-playlist --get-filename -o "%(title)s.%(ext)s" "$clean_url" 2>/dev/null | head -n1)
+test_filename=$(yt-dlp $playlist_option --get-filename -o "%(title)s.%(ext)s" "$download_url" 2>/dev/null | head -n1)
 if [ -z "$test_filename" ]; then
     notify-send "yt-dl" "No downloadable media found. Try opening the direct video page."
     exit 1
@@ -46,15 +74,19 @@ notify-send "yt-dl" "Download started..."
 
 # Download process
 if [ "$download_type" = "Audio" ]; then
-    yt-dlp --no-playlist -x --audio-format opus --audio-quality 0 -o "${OUTPUT_DIR}/%(title)s.%(ext)s" "$clean_url"
+    yt-dlp $playlist_option -x --audio-format opus --audio-quality 0 -o "$output_template" "$download_url"
 else
     # Video: best MP4 video + best M4A audio, fallback to single MP4, merge to MP4
-    yt-dlp --no-playlist -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]" --merge-output-format mp4 -o "${OUTPUT_DIR}/%(title)s.%(ext)s" "$clean_url"
+    yt-dlp $playlist_option -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]" --merge-output-format mp4 -o "$output_template" "$download_url"
 fi
 
 # Notify success or failure
 if [ $? -eq 0 ]; then
-    notify-send "yt-dl" "Download finished: $test_filename"
+    if [ "$is_playlist" = true ]; then
+        notify-send "yt-dl" "Playlist download finished in folder: $playlist_title"
+    else
+        notify-send "yt-dl" "Download finished: $test_filename"
+    fi
     paplay $HOME/.local/share/notification_sounds/peeee.wav
 else
     notify-send "yt-dl" "Download failed. Check terminal output for errors."
