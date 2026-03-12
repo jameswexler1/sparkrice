@@ -9,7 +9,7 @@
 # - Clipboard + dmenu input
 # - Notifications
 
-OUTPUT_DIR="/home/gustavo/Downloads"
+OUTPUT_DIR="${XDG_DOWNLOAD_DIR:-$HOME/Downloads}"
 
 # Ask user to choose download type
 download_type=$(printf "Audio\nVideo" | dmenu -p "Choose download type:")

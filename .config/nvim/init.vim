@@ -21,6 +21,7 @@ Plug 'tpope/vim-commentary'
 Plug 'ap/vim-css-color'
 call plug#end()
 
+
 set title
 set bg=light
 "set go=a
@@ -434,6 +435,7 @@ nnoremap <leader>wp :edit ~/.local/share/nvim/people/index.md<CR>
 " So ":vs ;cfz" will expand into ":vs /home/<user>/.config/zsh/.zshrc"
 " if typed fast without the timeout.
 silent! source ~/.config/nvim/shortcuts.vim
+
 
 
 
