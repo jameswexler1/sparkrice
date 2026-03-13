@@ -94,3 +94,7 @@ source /usr/share/zsh/plugins/fast-syntax-highlighting/fast-syntax-highlighting.
 
 # Load zoxide for a smarter cd (EXPERIMENTAL. COMMENT OUT IF UNSURE)
 eval "$(zoxide init zsh)"
+
+# Load the beautiful terminal name thing (EXPERIMENTAL. COMMENT OUT IF UNSURE)
+# export STARSHIP_CONFIG="$HOME/.config/starship/starship.toml"
+# eval "$(starship init zsh)"
