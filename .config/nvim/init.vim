@@ -301,6 +301,107 @@ nnoremap <leader>3 :call CompileAndClean()<CR>
 
 
 
+" === DIARY COMPILATION — now completely silent & clean ===
+function! CompileDiary() abort
+  let l:output_dir = expand("$HOME") . "/Documents/Anotacoes/VimwikiContinuous"
+  if !isdirectory(l:output_dir)
+    call mkdir(l:output_dir, 'p')
+    echom "Created Diary output directory: " . l:output_dir
+  endif
+
+  let l:base = "diario"
+  let l:tex_file = l:output_dir . '/' . l:base . '.tex'
+  let l:pdf_file = l:output_dir . '/' . l:base . '.pdf'
+
+  let l:diary_dir = expand("~/.local/share/nvim/vimwiki/diary")
+  let l:md_files = glob(l:diary_dir . '/*.md', 0, 1)
+  call sort(l:md_files)
+
+  let l:date_files = []
+  for l:f in l:md_files
+    let l:name = fnamemodify(l:f, ':t:r')
+    if l:name =~ '^\d\{4\}-\d\{2\}-\d\{2\}$'
+      call add(l:date_files, l:f)
+    endif
+  endfor
+
+  if empty(l:date_files)
+    echom "No diary entries yet."
+    return
+  endif
+
+  let l:month_translation = {
+    \ '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril',
+    \ '05': 'Maio', '06': 'Junho', '07': 'Julho', '08': 'Agosto',
+    \ '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+    \ }
+
+  let l:first_date = fnamemodify(l:date_files[0], ':t:r')
+  let l:last_date  = fnamemodify(l:date_files[-1], ':t:r')
+  let l:first_parts = split(l:first_date, '-')
+  let l:last_parts  = split(l:last_date, '-')
+  let l:first_mon = l:month_translation[l:first_parts[1]]
+  let l:last_mon  = l:month_translation[l:last_parts[1]]
+  let l:first_year = l:first_parts[0]
+  let l:last_year  = l:last_parts[0]
+
+  if l:first_year == l:last_year
+    let l:title = "Diário " . l:first_mon . " - " . l:last_mon . " " . l:first_year
+  else
+    let l:title = "Diário " . l:first_mon . " " . l:first_year . " - " . l:last_mon . " " . l:last_year
+  endif
+
+  let l:temp_md = '/tmp/diary_concat.md'
+  if filereadable(l:temp_md) | call delete(l:temp_md) | endif
+
+  for l:file in l:date_files
+    let l:date_key = fnamemodify(l:file, ':t:r')
+    let l:parts = split(l:date_key, '-')
+    let l:day = printf('%d', str2nr(l:parts[2]))
+    let l:mon_name = l:month_translation[l:parts[1]]
+    let l:year = l:parts[0]
+    let l:formatted_title = l:day . ' de ' . l:mon_name . ' de ' . l:year
+
+    call writefile(['# ' . l:formatted_title, ''], l:temp_md, 'a')
+    call writefile(readfile(l:file), l:temp_md, 'a')
+    call writefile([''], l:temp_md, 'a')
+  endfor
+
+  let l:template_path = expand("$HOME") . "/.local/share/default_latex/diary.tex"
+  let l:pandoc_cmd = "pandoc -s " . shellescape(l:temp_md) .
+        \ " -o " . shellescape(l:tex_file) .
+        \ " --template=" . shellescape(l:template_path) .
+        \ " --metadata title=" . shellescape(l:title)
+
+  let l:pandoc_result = system(l:pandoc_cmd)
+  if v:shell_error
+    echom "Pandoc failed: " . l:pandoc_result
+    call delete(l:temp_md)
+    return
+  endif
+
+  " === Compile TWICE (silences rerun/label warnings) ===
+  let l:old_dir = getcwd()
+  execute 'lcd ' . fnameescape(l:output_dir)
+  let l:xelatex_cmd = "xelatex -interaction=nonstopmode " . shellescape(l:base . '.tex')
+
+  echom "Compiling diary PDF..."
+  call system(l:xelatex_cmd)  " first run
+  call system(l:xelatex_cmd)  " second run (final TOC/hyperref)
+
+  execute 'lcd ' . fnameescape(l:old_dir)
+
+  " Cleanup
+  call delete(l:temp_md)
+  silent! call system("$HOME/.local/bin/cleaner " . shellescape(l:output_dir) . " " . shellescape(l:base))
+
+  echom "Diary PDF ready → " . l:pdf_file
+endfunction
+
+nnoremap <leader>4 :call CompileDiary()<CR>
+
+
+
 " TESTE DA FUNÇÃO DE TABELA:
 
 function! Table() range

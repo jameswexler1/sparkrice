@@ -1,45 +1,38 @@
 \documentclass[12pt]{article}
-
-$if(lang)$
-\RequirePackage[$lang$]{babel}
-$endif$
-
 % --- Packages ---
 \usepackage[margin=1in]{geometry}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
 \usepackage{datetime2}
+\usepackage{hyperref}
+\usepackage{xcolor}
 
-\setlength{\headheight}{14.5pt}
+% --- Fix fancyhdr headheight warning once and for all ---
+\usepackage{fancyhdr}
+\setlength{\headheight}{15pt}
 
-% --- Header and Footer Setup ---
+% --- Header and Footer ---
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{$title$}
 \fancyhead[R]{\DTMnow}
 \fancyfoot[C]{\thepage}
 
-% --- Custom Section Formatting ---
+% --- Exact same section style as your old Python script ---
 \titleformat{\section}
   {\large\bfseries}
   {}
   {0em}
   {}
 
-\titlespacing*{\section}
-  {0pt}
-  {0pt}
-  {0pt}
+% --- Disable numbering + silence emoji warnings + fix pandoc tightlist ---
+\setcounter{secnumdepth}{0}
+\tracinglostchars=0
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
 
 \begin{document}
-
 \begin{center}
-$if(title)$
-  {\huge \textbf{$title$}}\\[1ex]
-$endif$
-$if(year)$
-  {\Large $year$}\\[2ex]
-$endif$
+  {\huge \textbf{$title$}}\\[2ex]
 \end{center}
 \vspace{2em}
 
