@@ -2,10 +2,44 @@
 
 # Enable colors and change prompt:
 autoload -U colors && colors	# Load colors
-PS1="%B%{$fg[red]%}[%{$fg[yellow]%}%n%{$fg[green]%}@%{$fg[blue]%}%M %{$fg[magenta]%}%~%{$fg[red]%}]%{$reset_color%}$%b "
+# Pywal colors (updates with wallpaper)
+
+# Powerline prompt
+SEP=$'\ue0b0'
+setopt PROMPT_SUBST
+
+precmd() {
+    if [ -z "$FIRST_PROMPT" ]; then
+        FIRST_PROMPT=1
+    else
+        print ""
+    fi
+
+    # Split current path into segments
+    local dir="${(%):-%~}"
+    local parts=("${(@s:/:)dir}")
+    local seg_colors=(4 5 6 2 3)
+    local path_prompt=""
+    local prev_col=0
+    local i=1
+
+    for part in "${parts[@]}"; do
+        [[ -z "$part" ]] && part="/"
+        local col=${seg_colors[$(( (i-1) % ${#seg_colors} + 1 ))]}
+        path_prompt+="%K{${col}}%F{${prev_col}}${SEP}%F{0} ${part} "
+        prev_col=$col
+        (( i++ ))
+    done
+    path_prompt+="%k%F{${prev_col}}${SEP}%f"
+    PATH_PROMPT="$path_prompt"
+}
+
+PS1='%K{0}%F{1} %n@%M ${PATH_PROMPT} '
 setopt autocd		# Automatically cd into typed directory.
 stty stop undef		# Disable ctrl-s to freeze terminal.
 setopt interactive_comments
+
+# The prompt experiment finishes here.
 
 # History in cache directory:
 HISTSIZE=10000000

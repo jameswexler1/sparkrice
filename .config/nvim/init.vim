@@ -82,15 +82,17 @@ require('lualine').setup({
 EOF
 
 set title
-set bg=light
+set bg=dark " changed by claude for pywal thing
 set mouse=a
 set nohlsearch
 set clipboard+=unnamedplus
 set noshowmode
 set noruler
-set laststatus=0
+set laststatus=2
 set noshowcmd
-colorscheme vim
+set termguicolors
+colorscheme wal
+hi Normal guibg=NONE ctermbg=NONE
 
 " Some basics:
 nnoremap c "_c
