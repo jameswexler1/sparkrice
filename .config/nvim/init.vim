@@ -36,6 +36,35 @@ local function wordcount()
   return ''
 end
 
+local show_undo_info = false
+local function undo_info()
+  if not show_undo_info then return '' end
+  local ut = vim.fn.undotree()
+  local entries = ut.entries
+  if vim.tbl_isempty(entries) then return '' end
+  local seq_cur = ut.seq_cur
+  local seq_last = ut.seq_last
+  local timestamp = nil
+  for _, e in ipairs(entries) do
+    if e.seq == seq_cur then
+      timestamp = e.time
+      break
+    end
+  end
+  if not timestamp then return '' end
+  local date = os.date('%Y-%m-%d %H:%M', timestamp)
+  local steps = seq_last - seq_cur
+  if steps == 0 then
+    return '⏱ ' .. date .. ' [latest]'
+  else
+    return '⏱ ' .. date .. ' [-' .. steps .. ']'
+  end
+end
+
+vim.keymap.set('n', '<leader>u', function()
+  show_undo_info = not show_undo_info
+end, { desc = 'Toggle undo info' })
+
 require('lualine').setup({
   options = {
     icons_enabled = true,
@@ -62,7 +91,7 @@ require('lualine').setup({
       shorting_target = 0,
       symbols = { modified = '[+]', readonly = '[-]' }
     }},
-    lualine_x = { 'encoding', 'fileformat', 'filetype', wordcount },
+lualine_x = { undo_info, 'encoding', 'fileformat', 'filetype', wordcount },
     lualine_y = { 'progress' },
     lualine_z = { total_lines }
   },

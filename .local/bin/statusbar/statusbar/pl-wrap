@@ -1,0 +1,11 @@
+#!/bin/sh
+. ~/.cache/wal/colors.sh
+
+SEP=$'\ue0b0'
+BG=$(eval echo "\$${1}")
+BAR="${color0}"
+OUTPUT=$(${2})
+[ -z "$OUTPUT" ] && exit 0
+
+printf "^b%s^^c%s^%s^c%s^ %s ^b%s^^c%s^%s^d^" \
+    "$BG" "$BAR" "$SEP" "$BAR" "$OUTPUT" "$BAR" "$BG" "$SEP"
