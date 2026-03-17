@@ -1,0 +1,110 @@
+% === v3 — Bulletproof Pandoc LaTeX Template for College Notes ===
+% All previous errors fixed + scientific tables now safe
+
+\documentclass[11pt]{article}
+
+\usepackage[paper=a4paper, left=2.5cm, top=3cm, right=2.5cm, bottom=3cm]{geometry}
+
+% Core packages
+\usepackage{amsmath}
+\usepackage{titlesec}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{wrapfig}
+\usepackage{float}
+\usepackage{csquotes}
+\usepackage[american]{babel}
+\usepackage{caption}
+\usepackage{setspace}
+\usepackage{listings}
+\usepackage{microtype}
+\usepackage{siunitx}          % ← NEW: fixes 10^9, units, etc. forever
+
+% Fonts (XeLaTeX beauty)
+\usepackage{fontspec}
+\usepackage{unicode-math}
+\setmainfont{Libertinus Serif}
+\setmathfont{Libertinus Math}
+
+% Colours (exact lualine orange)
+\usepackage{xcolor}
+\definecolor{headerorange}{HTML}{FF8800}
+
+% Section styling
+\titleformat{\section}{\Large\bfseries\color{headerorange}}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries\color{headerorange}}{\thesubsection}{1em}{}
+
+% Captions & code
+\captionsetup{font=small, labelfont=bf}
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+% Scientific units (auto-handles 10^9, /L, %, etc.)
+\sisetup{
+  exponent-product = \times,
+  per-mode = symbol
+}
+
+% Bibliography (still Pandoc-safe)
+$if(biblatex)$
+\usepackage[backend=biber, style=apa]{biblatex}
+$for(bibliography)$
+\addbibresource{$bibliography$}
+$endfor$
+$endif$
+
+% Hyperref — MUST be last
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor={blue!70!black},
+  citecolor={green!60!black},
+  urlcolor={cyan!60!black},
+  pdfborder={0 0 0}
+}
+
+% Tight lists
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% Title/author/date
+$if(author)$
+  \author{$author$}
+$else$
+  \author{}
+$endif$
+$if(title)$
+  \title{$title$}
+$else$
+  \title{}
+$endif$
+$if(date)$
+  \date{$date$}
+$else$
+  \date{\today}
+$endif$
+
+\begin{document}
+
+\maketitle
+
+$if(toc)$
+\tableofcontents
+\newpage
+$endif$
+
+\onehalfspacing
+
+$body$
+
+\newpage
+$if(biblatex)$
+\printbibliography
+$endif$
+
+\end{document}

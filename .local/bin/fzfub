@@ -26,9 +26,9 @@ export SOCKET="$UEBERZUG_TMP_DIR"/ueberzugpp-"$UB_PID".socket
 
 case $2 in
 		*w) # wallpapermenu options
-				FZFARGS='ctrl-t:execute-silent(wallpapermenu {} tendency),ctrl-f:execute-silent(wallpapermenu {} flare),ctrl-d:execute-silent(wallpapermenu {} dim),ctrl-g:execute-silent(wallpapermenu {} grove),ctrl-w:execute-silent(wallpapermenu {}),ctrl-e:become(gimp {+} > /dev/null 2>&1)'
-				ILABEL='·.·★⋆⁺₊⋆·.·★⋆⁺₊⋆𝖜𝖆𝖑𝖑𝖕𝖆𝖕𝖊𝖗 𝖒𝖊𝖓𝖚⋆⁺₊⋆★·.·⋆⁺₊⋆★·.·'
-				LABEL='[ᴄᴛʀʟ 𝐰·ᴘʏᴡᴀʟ 𝐝·ᴅɪᴍ 𝐟·ғʟᴀʀᴇ 𝐠·ɢʀᴏᴠᴇ 𝐭·ᴛᴇɴᴅᴇɴᴄʏ]' ;;
+			FZFARGS='enter:execute-silent(setbg {})+accept,ctrl-w:execute-silent(setbg {}),ctrl-e:become(gimp {+} > /dev/null 2>&1)'
+			ILABEL='wallpaper menu'
+			LABEL='[ctrl-w: set wallpaper | ctrl-e: open in gimp]' ;;
 		*m) # ₊⊹ɪᴍɢᴍɢᴋ⊹₊ options
 				FZFARGS='ctrl-r:become(fzfubrefresh {}),ctrl-j:execute-silent(imgmgk jpg {}),ctrl-p:execute-silent(imgmgk png {}),ctrl-d:execute(rm -i {} && notify-send {} deleted),ctrl-s:execute-silent(imgmgk scale {+}),ctrl-b:execute-silent(imgmgk bw {+}),ctrl-w:execute-silent(imgmgk wm {+}),ctrl-g:become(gimp {+} > /dev/null 2>&1),ctrl-t:execute-silent(imgmgk transparency {+}),ctrl-f:execute-silent(imgmgk flip {+}),ctrl-v:execute-silent(imgmgk vflip {+}),ctrl-l:execute-silent(imgmgk border {+}),ctrl-h:execute-silent(imgmgk wborder {+})'
 				ILABEL="[ᴄᴛʀʟ: 𝐣·ᴊᴘɢ 𝐩·ᴘɴɢ 𝐝·ᴅᴇʟ 𝐬·sᴄᴀʟᴇ 𝐛·ʙ&ᴡ 𝐰·ᴡᴛʀᴍᴀʀᴋ"

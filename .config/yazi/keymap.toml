@@ -58,6 +58,10 @@ keymap = [
 	# Spotting
 	{ on = "<Tab>", run = "spot", desc = "Spot hovered file" },
 
+	# Images lf-like config
+
+	{ on = "T", run = "shell 'nsxiv -t .' --blocking=false", desc = "Open nsxiv thumbnails for current dir" },
+
 	# Operation
 	{ on = "o",         run = "open",                        desc = "Open selected files" },
 	{ on = "O",         run = "open --interactive",          desc = "Open selected files interactively" },
@@ -78,10 +82,10 @@ keymap = [
 	{ on = "r",         run = "rename --cursor=before_ext",  desc = "Rename selected file(s)" },
 	{ on = ";",         run = "shell --interactive",         desc = "Run a shell command" },
 	{ on = ":",         run = "shell --block --interactive", desc = "Run a shell command (block until finishes)" },
-	{ on = ".",         run = "hidden toggle",               desc = "Toggle the visibility of hidden files" },
+	{ on = "<C-s>",         run = "hidden toggle",               desc = "Toggle the visibility of hidden files" },
 	{ on = "s",         run = "search --via=fd",             desc = "Search files by name via fd" },
 	{ on = "S",         run = "search --via=rg",             desc = "Search files by content via ripgrep" },
-	{ on = "<C-s>",     run = "escape --search",             desc = "Cancel the ongoing search" },
+	# { on = "<C-s>",     run = "escape --search",             desc = "Cancel the ongoing search" },
 	{ on = "z",         run = "plugin fzf",                  desc = "Jump to a file/directory via fzf" },
 
 	# Linemode
@@ -150,7 +154,10 @@ keymap = [
 	{ on = "}", run = "tab_swap 1",  desc = "Swap current tab with next tab" },
 
 	# Tasks
-	{ on = "w", run = "tasks:show", desc = "Show task manager" },
+	{ on = "W", run = "tasks:show", desc = "Show task manager" },
+
+	# Access shell
+	{ on = "w", run = "shell '$SHELL' --block", desc = "Open interactive shell in cwd" },
 
 	# Help
 	{ on = "~",    run = "help", desc = "Open help" },
@@ -302,7 +309,7 @@ keymap = [
 	{ on = "P", run = "paste --before",                                    desc = "Paste copied characters before the cursor" },
 
 	# Undo/Redo/Casefy
-	{ on = "u",     run = [ "undo", "casefy lower" ], desc = "Undo, or lowercase if in visual mode" },
+	# { on = "u",     run = [ "undo", "casefy lower" ], desc = "Undo, or lowercase if in visual mode" }, # commented out to use the copy filename custom binding
 	{ on = "U",     run = "casefy upper",             desc = "Uppercase" },
 	{ on = "<C-r>", run = "redo",                     desc = "Redo the last operation" },
 
@@ -392,3 +399,19 @@ desc = "Zip selected/hovered file(s)"
 on = "E"
 run = "plugin extract"
 desc = "Extract selected/hovered file"
+[[mgr.prepend_keymap]]
+on = [ "g" , "l" ]
+run = "plugin share-localsend --args=%s"  # Passes selected files as args
+desc = "Share selected files with LocalSend and center the window"
+[[mgr.prepend_keymap]]
+on = "b"
+run = "shell 'setbg %h'"
+desc = "Set hovered image as background"
+[[mgr.prepend_keymap]]
+on = "u"
+run = "shell 'for f in %s; do basename \"$f\"; done | xclip -selection clipboard'"
+desc = "Copy filename(s)"
+[[mgr.prepend_keymap]]
+on = "U"
+run = "shell 'printf \"%s\\n\" %s | xclip -selection clipboard'"
+desc = "Copy filepath(s)"

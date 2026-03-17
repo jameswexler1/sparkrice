@@ -25,6 +25,7 @@ INCLUDES=(
     ".config/newsboat/config"
     ".config/nsxiv/exec/key-handler"
     ".config/nvim/init.vim"
+    ".config/nvim/functions"
     ".config/pinentry/preexec"
     ".config/pipewire/pipewire.conf.d/user-session.conf"
     ".config/pulse/daemon.conf"
@@ -47,6 +48,7 @@ INCLUDES=(
     ".config/yazi"
     ".config/zathura/zathurarc"
     ".config/zsh/.zshrc"
+    ".config/zsh/before_prompt_customization_march_14"
     ".gtkrc-2.0" # Symlink, copy as-is
     ".local/share/applications/file.desktop"
     ".local/share/applications/img.desktop"
@@ -68,12 +70,7 @@ INCLUDES=(
     ".local/share/larbs/getkeys/zathura"
     ".local/share/larbs/ttymaps.kmap"
     ".local/share/thiemeyer_road_to_samarkand.jpg"
-    ".local/share/default_latex/abnt.tex"
-    ".local/share/default_latex/default.tex"
-    ".local/share/default_latex/template2.tex"
-    ".local/share/default_latex/diary.tex"
-    ".local/share/default_latex/diary.lua"
-    ".local/share/default_latex/vancouver.tex"
+    ".local/share/default_latex"
     ".xprofile" # Symlink, copy as-is
     ".zprofile" # Symlink, copy as-is
     # Add any of *your* extra custom files/dirs here that aren't in sparkrice, e.g., ".config/myapp/config"
@@ -108,9 +105,12 @@ is_excluded() {
 for item in "${INCLUDES[@]}"; do
     src="$HOME/$item"
     dest="$DOTFILES_DIR/$item"
-    if [ -e "$src" ] && ! is_excluded "$src"; then
+if [ -e "$src" ] && ! is_excluded "$src"; then
         mkdir -p "$(dirname "$dest")"
-        cp -rP "$src" "$dest" # -P preserves symlinks without dereferencing
+        if [ -d "$src" ] && [ -d "$dest" ]; then
+            rm -rf "$dest"
+        fi
+        cp -rP "$src" "$dest"
         echo "Copied: $item"
     else
         echo "Skipped (not found or excluded): $item"

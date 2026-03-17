@@ -1,37 +1,120 @@
 #!/bin/bash
 set -e
 
-SOURCE_DIR="$HOME/.local/share/PrismLauncher/instances/Create Server 1.20.1 v.1.1 1.20.1/minecraft/mods"
-BACKUP_DIR="$HOME/trapacabackup"
-MOD_PATTERN="advanced-xray-fabric-1.20.1-*.jar"
+# ── Configuration ────────────────────────────────────────────────────────────
+MODS_DIR="$HOME/.local/share/PrismLauncher/instances/Create Server 1.20.1 v.1.1 1.20.1/minecraft/mods"
+STASH_DIR="$HOME/Documents/trapacabackup"
 
-mkdir -p "$BACKUP_DIR"
+# Add any cheat mod filename patterns here
+CHEAT_MODS=(
+    "advanced-xray-fabric-1.20.1-*.jar"
+    "breadcrumbs*.jar"
+    "autoswitch*.jar"
+)
+# ─────────────────────────────────────────────────────────────────────────────
 
-case "$1" in
-    --restitute)
-        shopt -s nullglob
-        files=("$BACKUP_DIR"/$MOD_PATTERN)
+mkdir -p "$STASH_DIR"
 
-        if [ ${#files[@]} -gt 0 ]; then
-            mv "${files[0]}" "$SOURCE_DIR/"
-            echo "Mod restored: $(basename "${files[0]}")"
+# Resolve glob patterns against a directory, return matches
+find_mods() {
+    local dir="$1"; shift
+    local results=()
+    shopt -s nullglob
+    for pattern in "$@"; do
+        local matches=("$dir"/$pattern)
+        results+=("${matches[@]}")
+    done
+    shopt -u nullglob
+    printf '%s\n' "${results[@]}"
+}
+
+cmd_hide() {
+    local moved=0 skipped=0
+    while IFS= read -r mod; do
+        local name
+        name=$(basename "$mod")
+        # Check if already stashed
+        if compgen -G "$STASH_DIR/$name" > /dev/null 2>&1; then
+            echo "  [skip]     $name  (already hidden)"
+            (( skipped++ )) || true
         else
-            echo "No backup found to restore."
+            mv "$mod" "$STASH_DIR/"
+            echo "  [hidden]   $name"
+            (( moved++ )) || true
         fi
+    done < <(find_mods "$MODS_DIR" "${CHEAT_MODS[@]}")
+
+    if (( moved == 0 && skipped == 0 )); then
+        echo "No cheat mods found in mods folder."
+    else
+        echo ""
+        echo "$moved mod(s) hidden, $skipped already hidden."
+    fi
+}
+
+cmd_restore() {
+    local moved=0 skipped=0
+    while IFS= read -r mod; do
+        local name
+        name=$(basename "$mod")
+        if [[ -f "$MODS_DIR/$name" ]]; then
+            echo "  [skip]     $name  (already in mods folder)"
+            (( skipped++ )) || true
+        else
+            mv "$mod" "$MODS_DIR/"
+            echo "  [restored] $name"
+            (( moved++ )) || true
+        fi
+    done < <(find_mods "$STASH_DIR" "${CHEAT_MODS[@]}")
+
+    if (( moved == 0 && skipped == 0 )); then
+        echo "No stashed mods found to restore."
+    else
+        echo ""
+        echo "$moved mod(s) restored, $skipped already active."
+    fi
+}
+
+cmd_status() {
+    local active=0 hidden=0
+    echo "── Active (in mods folder) ──────────────────"
+    while IFS= read -r mod; do
+        echo "  ✓  $(basename "$mod")"
+        (( active++ )) || true
+    done < <(find_mods "$MODS_DIR" "${CHEAT_MODS[@]}")
+    (( active == 0 )) && echo "  (none)"
+
+    echo ""
+    echo "── Hidden (stashed) ─────────────────────────"
+    while IFS= read -r mod; do
+        echo "  ✗  $(basename "$mod")"
+        (( hidden++ )) || true
+    done < <(find_mods "$STASH_DIR" "${CHEAT_MODS[@]}")
+    (( hidden == 0 )) && echo "  (none)"
+
+    echo ""
+    echo "$active active, $hidden hidden."
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+case "${1:-}" in
+    ""|-h|--hide)
+        echo "Hiding cheat mods..."
+        cmd_hide
         ;;
-    "")
-        shopt -s nullglob
-        files=("$SOURCE_DIR"/$MOD_PATTERN)
-
-        if [ ${#files[@]} -gt 0 ]; then
-            mv "${files[0]}" "$BACKUP_DIR/"
-            echo "Mod backed up: $(basename "${files[0]}")"
-        else
-            echo "No matching mod found to back up."
-        fi
+    -r|--restore|--restitute)
+        echo "Restoring cheat mods..."
+        cmd_restore
+        ;;
+    -s|--status)
+        cmd_status
         ;;
     *)
-        echo "Usage: $0 [--restitute]"
+        echo "Usage: $(basename "$0") [--hide | --restore | --status]"
+        echo ""
+        echo "  (no flag) / --hide     Move cheat mods out of the mods folder"
+        echo "  --restore              Move them back in"
+        echo "  --status               Show which mods are active vs. hidden"
         exit 1
         ;;
 esac

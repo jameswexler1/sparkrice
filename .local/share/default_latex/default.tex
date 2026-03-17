@@ -1,53 +1,65 @@
 % Custom Pandoc LaTeX Template based on Gustavo Magalhães's .tex file
-
 \documentclass[twocolumn]{article}
 \usepackage[paper=a4paper, left=2cm, top=3cm, right=2cm, bottom=3cm]{geometry}
-\usepackage{amsmath}       % For math support
+\usepackage{amsmath}
 \usepackage{xcolor}
-\usepackage{hyperref}
-\usepackage{titlesec}      % (Optional) For additional title/section formatting
+\usepackage{titlesec}
 \usepackage{longtable}
 \usepackage{csquotes}
 \usepackage{booktabs}
 \usepackage{float}
-\usepackage[backend=biber, style=apa]{biblatex}
-\addbibresource{/home/gustavo/.local/share/biblatex/uni.bib}
-
+\usepackage[american]{babel}
 % Set column separation rules
 \renewcommand{\columnseprule}{0.4pt}
 \setlength{\columnsep}{20pt}
-
+% Hyperref (after xcolor)
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = black,
+  urlcolor   = blue,
+  citecolor  = red
+}
+% Bibliography (only when --biblatex is passed)
+$if(biblatex)$
+\usepackage[backend=biber, style=apa]{biblatex}
+\addbibresource{/home/gustavo/.local/share/biblatex/uni.bib}
+$endif$
 $if(author)$
   \author{$author$}
 $else$
   \author{Gustavo Magalhães}
 $endif$
-
 $if(title)$
   \title{$title$}
 $else$
   \title{Physiology}
 $endif$
-
 $if(date)$
   \date{$date$}
 $else$
   \date{\today}
 $endif$
-
 \providecommand{\tightlist}{%
   \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
-
 \begin{document}
 
+\onecolumn
 \maketitle
+
+$if(toc)$
+\tableofcontents
+\clearpage
+$endif$
+
+\twocolumn
 
 $body$
 
+$if(biblatex)$
 \newpage
 \onecolumn
-
 \printbibliography
-
+$endif$
 
 \end{document}

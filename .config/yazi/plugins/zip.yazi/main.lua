@@ -1,26 +1,25 @@
 -- ~/.config/yazi/plugins/zip.yazi/main.lua
 
-local get_files = ya.sync(function(state)
-  local selected = cx.active.selected
-  local files = {}
+local get_urls = ya.sync(function()
+  local selected = cx.active.selected or {}
+  local urls = {}
   if #selected == 0 then
     local hovered = cx.active.current.hovered
     if hovered then
-      table.insert(files, tostring(hovered.url))
+      table.insert(urls, hovered.url)
     end
   else
     for _, url in pairs(selected) do
-      table.insert(files, tostring(url))
+      table.insert(urls, url)
     end
   end
-  return files
+  return urls
 end)
 
-local function get_basenames(files)
+local function get_basenames(urls)
   local basenames = {}
-  for _, file in ipairs(files) do
-    local url = Url(file)
-    table.insert(basenames, url.name)  -- ← fixed: .name is a field, not a method()
+  for _, url in ipairs(urls) do
+    table.insert(basenames, url.name)  -- field
   end
   return basenames
 end
@@ -34,48 +33,25 @@ local function log(msg)
 end
 
 return {
-  entry = function(self, job)
-    local files = get_files()
-    if #files == 0 then
+  entry = function()
+    local urls = get_urls()
+    if #urls == 0 then
       ya.notify({ title = "Zip", content = "No files selected or hovered.", level = "warn", timeout = 3 })
       return
     end
 
-    local basenames = get_basenames(files)
-
+    local basenames = get_basenames(urls)
     log("Started plugin")
 
-    local permit = ui.hide()
-    log("Hid UI")
-
     local ok, err = pcall(function()
-      os.execute("clear")
-
-      local tput_handle = io.popen("tput lines")
-      local lines_str = tput_handle:read("*a"):gsub("\n", "")
-      tput_handle:close()
-      local lines = tonumber(lines_str) or 24
-      local row = math.floor(lines / 3)
-      print("\027[" .. row .. ";1H")
-      print("\027[1m") -- Bold
-
-      log("Cleared and positioned screen")
-
-      -- List files (full paths, indented)
-      for _, file in ipairs(files) do
-        print("  " .. file)
-      end
-      print("")
-
-      -- Name prompt
-      io.write("Zip as (name.zip)? ")
-      io.flush()
-      local name = io.read("*l") or ""
-      log("Entered name: '" .. name .. "'")
-
-      os.execute("clear") -- Clean up after any fzf/cancel artifacts if needed
-
-      if name == "" then
+      -- Name prompt (popup instead of terminal)
+      local name, status = ya.input({
+        title = "Zip as (name.zip)?",
+        value = "",  -- no default, like original
+        pos = { "center", w = 70 },
+      })
+      log("Entered name: '" .. (name or "") .. "'")
+      if status ~= 1 or not name or name == "" then
         log("No name entered")
         return
       end
@@ -89,12 +65,13 @@ return {
       local handle = io.open(name, "r")
       if handle then
         handle:close()
-        io.write(string.format("File '%s' exists. Overwrite? [y/N] ", name))
-        io.flush()
-        local ow = (io.read("*l") or ""):lower()
-        log("Overwrite answer: '" .. ow .. "'")
-        if ow ~= "y" then
-          os.execute("clear")
+        local ow, ow_status = ya.input({
+          title = string.format("File '%s' exists. Overwrite? [y/N]", name),
+          value = "",
+          pos = { "center", w = 50 },
+        })
+        log("Overwrite answer: '" .. (ow or "") .. "'")
+        if ow_status ~= 1 or (ow or ""):lower() ~= "y" then
           log("Overwrite canceled")
           return
         end
@@ -103,14 +80,13 @@ return {
       end
 
       -- Final confirmation
-      io.write(string.format("Save as '%s'? [y/N] ", name))
-      io.flush()
-      local ans = (io.read("*l") or ""):lower()
-      print("\027[0m") -- Reset bold
-      log("Confirm answer: '" .. ans .. "'")
-
-      if ans ~= "y" then
-        os.execute("clear")
+      local ans, ans_status = ya.input({
+        title = string.format("Save as '%s'? [y/N]", name),
+        value = "",
+        pos = { "center", w = 60 },
+      })
+      log("Confirm answer: '" .. (ans or "") .. "'")
+      if ans_status ~= 1 or (ans or ""):lower() ~= "y" then
         log("Save canceled")
         return
       end
@@ -121,32 +97,24 @@ return {
         table.insert(quoted_basenames, string.format("%q", b))
       end
       local args = table.concat(quoted_basenames, " ")
-      local zip_cmd = string.format("zip -r %q -- %s", name, args)
+      local zip_cmd = string.format("zip -q -r %q -- %s", name, args)  -- Added -q for quiet mode
       log("Running: " .. zip_cmd)
-
       local status = os.execute(zip_cmd)
-
-      os.execute("clear")
-      log("Cleared terminal after zip")
-
       if status == 0 or status == true then
         ya.notify({ title = "📦 Archive created.", content = "Saved as " .. name .. ".", level = "info", timeout = 5 })
-        local notify_cmd = string.format("notify-send '📦 Archive created.' 'Saved as %s'", name)
+        local notify_cmd = string.format("notify-send '📦 Archive created.' 'Saved as %s' 2>/dev/null || true", name)
         os.execute(notify_cmd)
         log("Sent success notify")
+        ya.manager_emit("refresh", {})  -- Refresh the manager to update the file list and clear any potential artifacts
       else
         log("Zip failed")
       end
     end)
 
-    permit:drop()
-    log("Dropped permit")
-
+    log("Ended plugin")
     if not ok then
       ya.notify({ title = "Zip Runtime Error", content = tostring(err), level = "error", timeout = 5 })
       log("Error: " .. tostring(err))
     end
-
-    log("Ended plugin")
   end,
 }

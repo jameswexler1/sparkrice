@@ -1,0 +1,185 @@
+% ============================================================
+%  Medical Notes Template — Gustavo Magalhães
+%  Pandoc LaTeX template for vimwiki markdown → PDF
+%  Place at: ~/.local/share/default_latex/default.tex
+% ============================================================
+
+\documentclass[12pt, a4paper]{article}
+
+% ── Page geometry ────────────────────────────────────────────
+\usepackage[
+  a4paper,
+  left=2.2cm, right=2.2cm,
+  top=2.8cm,  bottom=3cm,
+  headheight=15pt
+]{geometry}
+
+% ── Font & encoding ──────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage{libertinus}          % Clean, readable serif for long sessions
+\usepackage{microtype}           % Polished typesetting
+
+% ── Language ─────────────────────────────────────────────────
+\usepackage[american]{babel}
+
+% ── Math ─────────────────────────────────────────────────────
+\usepackage{amsmath}
+
+% ── Units (mmHg, mg/dL, bpm, etc.) ──────────────────────────
+\usepackage{siunitx}
+\sisetup{per-mode=symbol, detect-all}
+
+% ── Tables ───────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{float}
+
+% ── Lists ────────────────────────────────────────────────────
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=3pt, parsep=0pt}
+\setlist[itemize,1]{label=\textbullet}
+\setlist[itemize,2]{label=\textendash}
+\setlist[itemize,3]{label=\textasteriskcentered}
+
+% ── Graphics ─────────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{wrapfig}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\makeatother
+\setkeys{Gin}{width=\maxwidth, keepaspectratio}
+
+% ── Colors ───────────────────────────────────────────────────
+\usepackage{xcolor}
+\definecolor{medred}{RGB}{180, 30, 30}
+\definecolor{medblue}{RGB}{20, 80, 160}
+\definecolor{medgreen}{RGB}{30, 120, 60}
+\definecolor{medorange}{RGB}{200, 100, 0}
+\definecolor{medpurple}{RGB}{100, 30, 140}
+\definecolor{rulegray}{RGB}{180, 180, 180}
+
+% ── Clinical callout boxes ───────────────────────────────────
+\usepackage[most]{tcolorbox}
+
+% Red Flags / Emergency
+\newtcolorbox{redflag}[1][Red Flags]{
+  colback=medred!6, colframe=medred,
+  title=#1, fonttitle=\bfseries\small,
+  arc=2pt, boxrule=0.8pt,
+  left=4pt, right=4pt, top=3pt, bottom=3pt
+}
+
+% Key concept / Definition
+\newtcolorbox{keybox}[1][Key Concept]{
+  colback=medblue!6, colframe=medblue,
+  title=#1, fonttitle=\bfseries\small,
+  arc=2pt, boxrule=0.8pt,
+  left=4pt, right=4pt, top=3pt, bottom=3pt
+}
+
+% Drug / Pharmacology
+\newtcolorbox{drugbox}[1][Pharmacology]{
+  colback=medgreen!6, colframe=medgreen,
+  title=#1, fonttitle=\bfseries\small,
+  arc=2pt, boxrule=0.8pt,
+  left=4pt, right=4pt, top=3pt, bottom=3pt
+}
+
+% Clinical pearl
+\newtcolorbox{pearl}[1][Clinical Pearl]{
+  colback=medorange!6, colframe=medorange,
+  title=#1, fonttitle=\bfseries\small,
+  arc=2pt, boxrule=0.8pt,
+  left=4pt, right=4pt, top=3pt, bottom=3pt
+}
+
+% Mnemonic
+\newtcolorbox{mnemonic}[1][Mnemonic]{
+  colback=medpurple!6, colframe=medpurple,
+  title=#1, fonttitle=\bfseries\small,
+  arc=2pt, boxrule=0.8pt,
+  left=4pt, right=4pt, top=3pt, bottom=3pt
+}
+
+% ── Section formatting ───────────────────────────────────────
+\usepackage{titlesec}
+\titleformat{\section}
+  {\large\bfseries}{}{0em}{}
+  [\vspace{-4pt}\textcolor{rulegray}{\rule{\linewidth}{0.5pt}}]
+\titleformat{\subsection}
+  {\normalsize\bfseries}{}{0em}{}
+\titleformat{\subsubsection}
+  {\normalsize\itshape}{}{0em}{}
+
+\titlespacing{\section}{0pt}{14pt}{4pt}
+\titlespacing{\subsection}{0pt}{10pt}{2pt}
+\titlespacing{\subsubsection}{0pt}{8pt}{2pt}
+
+% ── Paragraph spacing ────────────────────────────────────────
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+
+% ── Header / Footer ──────────────────────────────────────────
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\textit{$if(subject)$$subject$$else$Medicine$endif$}}
+\fancyhead[R]{\small\textit{$if(title)$$title$$endif$}}
+\fancyfoot[C]{\small\thepage}
+
+% ── Hyperlinks ───────────────────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = medblue,
+  urlcolor   = medblue,
+  citecolor  = medred,
+  pdftitle   = {$if(title)$$title$$endif$},
+  pdfauthor  = {$if(author)$$author$$endif$}
+}
+
+% ── Quotes ───────────────────────────────────────────────────
+\usepackage{csquotes}
+
+% ── Bibliography (only active when --biblatex is passed) ─────
+$if(biblatex)$
+\usepackage[backend=biber, style=apa]{biblatex}
+\addbibresource{/home/gustavo/.local/share/biblatex/uni.bib}
+$endif$
+
+% ── Pandoc boilerplate ───────────────────────────────────────
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% ── Metadata ─────────────────────────────────────────────────
+$if(author)$\author{$author$}$else$\author{}$endif$
+$if(title)$
+  \title{\textbf{$title$}$if(subtitle)$\\[4pt]\large $subtitle$$endif$}
+$else$
+  \title{}
+$endif$
+$if(date)$\date{$date$}$else$\date{\today}$endif$
+
+% ============================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+$if(toc)$
+\tableofcontents
+\clearpage
+$endif$
+
+$body$
+
+$if(biblatex)$
+\newpage
+\printbibliography
+$endif$
+
+\end{document}

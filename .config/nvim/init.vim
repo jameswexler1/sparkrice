@@ -214,7 +214,10 @@ function! ToggleHiddenAll()
     endif
 endfunction
 nnoremap <leader>h :call ToggleHiddenAll()<CR>
-" (All your custom functions and mappings below are unchanged — CompileAndClean, CompileDiary, Table, HTML shortcuts, etc.)
+
+
+
+
 " Custom command to compile notes into pdf with xelatex"
 function! CompileAndClean(...) abort
   " Arguments: template_name (string, optional), use_bib (0/1, optional)
@@ -269,10 +272,11 @@ function! CompileAndClean(...) abort
   if filereadable(l:filter_path)
     let l:filter_cmd = ' --lua-filter=' . shellescape(l:filter_path)
   endif
-  " Prompt for bibliography if not specified
+" Detect toc: true and bibliography: true in YAML front matter
+  let l:yaml = getline(1, 30)
+  let l:has_toc = !empty(filter(copy(l:yaml), 'v:val =~ "^\\s*toc:\\s*true"'))
   if l:use_bib == -1
-    let l:bib_choice = confirm("Include bibliography?", "&Yes\n&No", 2)
-    let l:use_bib = (l:bib_choice == 1 ? 1 : 0)
+    let l:use_bib = !empty(filter(copy(l:yaml), 'v:val =~ "^\\s*bibliography:\\s*true"')) ? 1 : 0
   endif
   " .tex file path
   let l:tex_file = l:output_dir . '/' . l:base . '.tex'
@@ -290,7 +294,7 @@ function! CompileAndClean(...) abort
   " Change to output dir for compilation
   let l:old_dir = getcwd()
   execute 'lcd ' . fnameescape(l:output_dir)
-  " XeLaTeX runs (extra for bib)
+  " XeLaTeX runs
   let l:xelatex_cmd = "xelatex -interaction=nonstopmode " . shellescape(l:base . '.tex')
   echom "Running first xelatex: " . l:xelatex_cmd
   let l:xelatex_result = system(l:xelatex_cmd)
@@ -298,6 +302,16 @@ function! CompileAndClean(...) abort
     echom "First xelatex failed: " . l:xelatex_result
     execute 'lcd ' . fnameescape(l:old_dir)
     return
+  endif
+  " Second pass for TOC without bibliography
+  if !l:use_bib && l:has_toc
+    echom "Running second xelatex (TOC): " . l:xelatex_cmd
+    let l:xelatex_result = system(l:xelatex_cmd)
+    if v:shell_error
+      echom "Second xelatex failed: " . l:xelatex_result
+      execute 'lcd ' . fnameescape(l:old_dir)
+      return
+    endif
   endif
   if l:use_bib
     " Biber
@@ -338,10 +352,9 @@ function! CompileAndClean(...) abort
   endif
 endfunction
 " Mappings
-nnoremap <leader>1 :call CompileAndClean('default', 0)<CR> " Default template, no bib
-nnoremap <leader>2 :call CompileAndClean('template2', 0)<CR> " Template2, no bib
+nnoremap <leader>1 :call CompileAndClean('default')<CR>
+nnoremap <leader>2 :call CompileAndClean('template2')<CR>
 nnoremap <leader>3 :call CompileAndClean()<CR>
-
 
 
 
@@ -431,115 +444,318 @@ nnoremap <leader>4 :call CompileDiary()<CR>
 
 
 " TESTE DA FUNÇÃO DE TABELA:
-function! Table() range
-    " Get selected lines
-    let lines = getline(a:firstline, a:lastline)
-    if empty(lines)
-        echom "No lines selected"
-        return
-    endif
-    " Prompt for delimiter
-    let delimiter = input("Enter the delimiter (default is ','): ")
-    if empty(delimiter)
-        let delimiter = ','
-    endif
-    " Prompt for number of header lines
-    let num_header_lines = input("Enter the number of header lines (0, 1, or 2): ")
-    if num_header_lines !~ '^[0-2]$'
-        echom "Invalid input. Please enter 0, 1, or 2."
-        return
-    endif
-    let num_header_lines = str2nr(num_header_lines)
-    " Process headers and data rows based on input
-    if num_header_lines == 0
-        let header_input = input("Enter headers separated by commas: ")
-        let headers = split(header_input, ',')
-        let headers = map(headers, 'trim(v:val)')
-        let data_rows = lines
-    elseif num_header_lines == 1
-        if len(lines) < 1
-            echom "Error: Not enough lines selected"
-            return
-        endif
-        let headers = split(lines[0], delimiter)
-        let data_rows = lines[1:]
-    elseif num_header_lines == 2
-        if len(lines) < 2
-            echom "Error: Not enough lines selected for composite headers"
-            return
-        endif
-        let group_headers = split(lines[0], delimiter)
-        let subheaders = split(lines[1], delimiter)
-        let data_rows = lines[2:]
-        let group_names = filter(copy(group_headers[1:]), '!empty(v:val)')
-        let num_groups = len(group_names)
-        if num_groups == 0
-            echom "Error: No group headers found"
-            return
-        endif
-        let num_subheaders = len(subheaders) - 1
-        if num_subheaders % num_groups != 0
-            echom "Error: Subheaders not evenly divisible by number of groups"
-            return
-        endif
-        let span = num_subheaders / num_groups
-    endif
-    " Set number of columns
-    if num_header_lines == 2
-        let num_cols = len(subheaders)
+" ── Cell sanitizer: fixes ^ and unicode superscripts for LaTeX ──────────────
+function! s:SanitizeCell(cell)
+  let l:c = a:cell
+  " Map unicode superscript digits to ASCII
+  let l:umap = {
+    \ '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4',
+    \ '⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9'
+    \ }
+  for [l:uni, l:num] in items(l:umap)
+    let l:c = substitute(l:c, l:uni, l:num, 'g')
+  endfor
+  " Convert explicit ^{...} → \textsuperscript{...}
+  let l:c = substitute(l:c, '\^{\([^}]*\)}', '\\textsuperscript{\1}', 'g')
+  " Convert bare ^X or ^12 → \textsuperscript{X}
+  let l:c = substitute(l:c, '\^\([0-9a-zA-Z+\-][0-9]*\)', '\\textsuperscript{\1}', 'g')
+  return l:c
+endfunction
+
+" ── Quote-aware splitter ─────────────────────────────────────────────────────
+function! s:SplitRespectingQuotes(line, delim)
+  let result = []
+  let current = ''
+  let in_quotes = 0
+  let i = 0
+  while i < len(a:line)
+    let ch = a:line[i]
+    if ch == '"'
+      let in_quotes = !in_quotes
+    elseif ch == a:delim && !in_quotes
+      call add(result, trim(current))
+      let current = ''
+      let i += 1
+      continue
     else
-        let num_cols = len(headers)
+      let current .= ch
     endif
-    " Prompt for caption and label
+    let i += 1
+  endwhile
+  call add(result, trim(current))
+  return result
+endfunction
+
+" ── Pipe row splitter: splits a markdown | row | into cells ─────────────────
+function! s:SplitPipeRow(line)
+  " Strip leading and trailing pipes, then split on |
+  let l:stripped = substitute(a:line, '^\s*|\(.*\)|\s*$', '\1', '')
+  let l:cells = split(l:stripped, '|')
+  return map(l:cells, 'trim(v:val)')
+endfunction
+
+" ── Detect if selected lines form a markdown pipe table ──────────────────────
+function! s:IsPipeTable(lines)
+  if empty(a:lines)
+    return 0
+  endif
+  " First line must start with |
+  if a:lines[0] !~ '^\s*|'
+    return 0
+  endif
+  " Must have at least a header + separator row
+  if len(a:lines) < 2
+    return 0
+  endif
+  " Second line must be a separator row like |---|---|
+  if a:lines[1] !~ '^\s*|[-| :]*|'
+    return 0
+  endif
+  return 1
+endfunction
+
+" ── Parse a markdown pipe table into headers + data rows ─────────────────────
+function! s:ParsePipeTable(lines)
+  " First line = headers, second line = separator (skip), rest = data
+  let l:headers = s:SplitPipeRow(a:lines[0])
+  let l:data_rows_raw = a:lines[2:]  " skip separator at index 1
+  let l:data_rows = []
+  for l:row in l:data_rows_raw
+    " Skip empty lines or lines that don't look like table rows
+    if l:row =~ '^\s*|'
+      call add(l:data_rows, l:row)
+    endif
+  endfor
+  return [l:headers, l:data_rows]
+endfunction
+
+" ── LaTeX output builder ─────────────────────────────────────────────────────
+function! s:BuildLatex(headers, data_rows, num_cols, caption, label, is_pipe)
+  let latex = [
+    \ '\begin{table}[H]',
+    \ '\centering',
+    \ '\caption{' . a:caption . '}',
+    \ '\label{' . a:label . '}',
+    \ '\begin{tabular}{l' . repeat('c', a:num_cols - 1) . '}'
+    \ ]
+  let header_cells = map(copy(a:headers), '"\\textbf{" . escape(s:SanitizeCell(trim(v:val)), "&%#") . "}"')
+  call add(latex, '\toprule')
+  call add(latex, join(header_cells, ' & ') . ' \\')
+  call add(latex, '\midrule')
+  for row in a:data_rows
+    if a:is_pipe
+      let cells = s:SplitPipeRow(row)
+    else
+      let cells = s:SplitRespectingQuotes(row, ',')
+    endif
+    let row_cells = map(range(a:num_cols), 'v:val < len(cells) ? escape(s:SanitizeCell(trim(cells[v:val])), "&%#") : ""')
+    call add(latex, join(row_cells, ' & ') . ' \\')
+  endfor
+  call add(latex, '\bottomrule')
+  call add(latex, '\end{tabular}')
+  call add(latex, '\end{table}')
+  return latex
+endfunction
+
+" ── Main Table function ──────────────────────────────────────────────────────
+function! Table() range
+  let lines = getline(a:firstline, a:lastline)
+  if empty(lines)
+    echom "No lines selected"
+    return
+  endif
+
+  " ── AUTO-DETECT PIPE TABLE ────────────────────────────────────────────────
+  if s:IsPipeTable(lines)
+    let [l:headers, l:data_rows] = s:ParsePipeTable(lines)
+    let l:num_cols = len(l:headers)
+    if l:num_cols == 0
+      echom "Error: No columns detected in pipe table"
+      return
+    endif
+    " Still ask output mode — pipe table → LaTeX is the main use case,
+    " but markdown mode just re-emits it cleanly (useful for reformatting)
+    let mode_choice = input("Pipe table detected. Output (l)aTeX or (m)arkdown [default l]: ")
+    if empty(mode_choice)
+      let mode_choice = 'l'
+    endif
+    if mode_choice =~? 'm'
+      " Re-emit as clean markdown (normalizes spacing)
+      let md = []
+      call add(md, '| ' . join(l:headers, ' | ') . ' |')
+      call add(md, '|' . repeat('---|', l:num_cols))
+      for row in l:data_rows
+        let cells = s:SplitPipeRow(row)
+        let row_cells = map(range(l:num_cols), 'v:val < len(cells) ? cells[v:val] : ""')
+        call add(md, '| ' . join(row_cells, ' | ') . ' |')
+      endfor
+      execute a:firstline . ',' . a:lastline . 'delete _'
+      call append(a:firstline - 1, md)
+      return
+    endif
+    " LaTeX output
     let caption = input('Enter caption: ', 'Table Caption')
     let label = input('Enter label (e.g., tab:yourlabel): ', 'tab:yourlabel')
-    " Build LaTeX table
-    let latex = ['\begin{table}[H]', '\centering', '\caption{' . caption . '}', '\label{' . label . '}', '\begin{tabular}{l' . repeat('c', num_cols - 1) . '}']
-    if num_header_lines == 2
-        " Composite header with groups
-        let group_row = ['']
-        for i in range(num_groups)
-            call add(group_row, '\multicolumn{' . span . '}{c}{\textbf{' . escape(group_names[i], "&%#") . '}}')
-        endfor
-        call add(latex, '\toprule')
-        call add(latex, join(group_row, ' & ') . ' \\')
-        let cmidrules = []
-        for i in range(num_groups)
-            let start_col = 2 + i * span
-            let end_col = start_col + span - 1
-            call add(cmidrules, '\cmidrule(lr){' . start_col . '-' . end_col . '}')
-        endfor
-        call add(latex, join(cmidrules, ' '))
-        let subheader_cells = map(subheaders, '"\\textbf{" . escape(trim(v:val), "&%#") . "}"')
-        call add(latex, join(subheader_cells, ' & ') . ' \\')
-        call add(latex, '\midrule')
-    else
-        " Simple header
-        let header_cells = map(headers, '"\\textbf{" . escape(trim(v:val), "&%#") . "}"')
-        call add(latex, '\toprule')
-        call add(latex, join(header_cells, ' & ') . ' \\')
-        call add(latex, '\midrule')
+    let latex = s:BuildLatex(l:headers, l:data_rows, l:num_cols, caption, label, 1)
+    execute a:firstline . ',' . a:lastline . 'delete _'
+    call append(a:firstline - 1, latex)
+    return
+  endif
+
+  " ── CSV / MANUAL INPUT PATH ───────────────────────────────────────────────
+  let mode_choice = input("Output mode (l)aTeX or (m)arkdown [default l]: ")
+  if empty(mode_choice)
+    let mode_choice = 'l'
+  endif
+  if mode_choice !~ '^[lmLM]$'
+    echom "Invalid mode. Use l or m."
+    return
+  endif
+  let use_markdown = (mode_choice =~? 'm')
+  let delimiter = input("Enter the delimiter (default is ','): ")
+  if empty(delimiter)
+    let delimiter = ','
+  endif
+  let num_header_lines = input("Enter the number of header lines (0, 1, or 2): ")
+  if num_header_lines !~ '^[0-2]$'
+    echom "Invalid input. Please enter 0, 1, or 2."
+    return
+  endif
+  let num_header_lines = str2nr(num_header_lines)
+  if num_header_lines == 0
+    let header_input = input("Enter headers separated by commas: ")
+    let headers = s:SplitRespectingQuotes(header_input, delimiter)
+    let data_rows = lines
+  elseif num_header_lines == 1
+    if len(lines) < 1
+      echom "Error: Not enough lines selected"
+      return
     endif
-    " Add data rows
+    let headers = s:SplitRespectingQuotes(lines[0], delimiter)
+    let data_rows = lines[1:]
+  elseif num_header_lines == 2
+    if len(lines) < 2
+      echom "Error: Not enough lines selected for composite headers"
+      return
+    endif
+    let group_headers = s:SplitRespectingQuotes(lines[0], delimiter)
+    let subheaders = s:SplitRespectingQuotes(lines[1], delimiter)
+    let data_rows = lines[2:]
+    let group_names = filter(copy(group_headers[1:]), '!empty(v:val)')
+    let num_groups = len(group_names)
+    if num_groups == 0
+      echom "Error: No group headers found in first row (columns 2+)"
+      return
+    endif
+    let num_subheaders = len(subheaders) - 1
+    if num_subheaders <= 0
+      echom "Error: Not enough subheaders found"
+      return
+    endif
+    if num_subheaders % num_groups != 0
+      echom "Error: Subheaders (" . num_subheaders . ") not evenly divisible by groups (" . num_groups . ")"
+      return
+    endif
+    let span = num_subheaders / num_groups
+  endif
+  if num_header_lines == 2
+    let num_cols = len(subheaders)
+  else
+    let num_cols = len(headers)
+  endif
+  if num_cols == 0
+    echom "Error: No columns detected"
+    return
+  endif
+  " ── MARKDOWN OUTPUT ───────────────────────────────────────────────────────
+  if use_markdown
+    let md = []
+    if num_header_lines == 2
+      call add(md, '<!-- Composite header: ' . join(group_names, ', ') . ' -->')
+      call add(md, '| ' . join(subheaders, ' | ') . ' |')
+    else
+      call add(md, '| ' . join(headers, ' | ') . ' |')
+    endif
+    call add(md, '|' . repeat('---|', num_cols))
     for row in data_rows
-        let cells = split(row, delimiter)
-        let row_cells = map(range(num_cols), 'v:val < len(cells) ? escape(trim(cells[v:val]), "&%#") : ""')
-        call add(latex, join(row_cells, ' & ') . ' \\')
+      let cells = s:SplitRespectingQuotes(row, delimiter)
+      let row_cells = map(range(num_cols), 'v:val < len(cells) ? cells[v:val] : ""')
+      call add(md, '| ' . join(row_cells, ' | ') . ' |')
     endfor
-    " Close table
+    execute a:firstline . ',' . a:lastline . 'delete _'
+    call append(a:firstline - 1, md)
+    return
+  endif
+  " ── LATEX OUTPUT (csv, composite header path) ─────────────────────────────
+  let caption = input('Enter caption: ', 'Table Caption')
+  let label = input('Enter label (e.g., tab:yourlabel): ', 'tab:yourlabel')
+  if num_header_lines == 2
+    let latex = [
+      \ '\begin{table}[H]',
+      \ '\centering',
+      \ '\caption{' . caption . '}',
+      \ '\label{' . label . '}',
+      \ '\begin{tabular}{l' . repeat('c', num_cols - 1) . '}'
+      \ ]
+    let group_row = ['']
+    for i in range(num_groups)
+      call add(group_row, '\multicolumn{' . span . '}{c}{\textbf{' . escape(s:SanitizeCell(group_names[i]), "&%#") . '}}')
+    endfor
+    call add(latex, '\toprule')
+    call add(latex, join(group_row, ' & ') . ' \\')
+    let cmidrules = []
+    for i in range(num_groups)
+      let start_col = 2 + i * span
+      let end_col = start_col + span - 1
+      call add(cmidrules, '\cmidrule(lr){' . start_col . '-' . end_col . '}')
+    endfor
+    call add(latex, join(cmidrules, ' '))
+    let subheader_cells = map(subheaders, '"\\textbf{" . escape(s:SanitizeCell(trim(v:val)), "&%#") . "}"')
+    call add(latex, join(subheader_cells, ' & ') . ' \\')
+    call add(latex, '\midrule')
+    for row in data_rows
+      let cells = s:SplitRespectingQuotes(row, delimiter)
+      let row_cells = map(range(num_cols), 'v:val < len(cells) ? escape(s:SanitizeCell(trim(cells[v:val])), "&%#") : ""')
+      call add(latex, join(row_cells, ' & ') . ' \\')
+    endfor
     call add(latex, '\bottomrule')
     call add(latex, '\end{tabular}')
     call add(latex, '\end{table}')
-    " Replace selection with table
-    execute a:firstline . ',' . a:lastline . 'delete _'
-    call append(a:firstline - 1, latex)
+  else
+    let latex = s:BuildLatex(headers, data_rows, num_cols, caption, label, 0)
+  endif
+  execute a:firstline . ',' . a:lastline . 'delete _'
+  call append(a:firstline - 1, latex)
 endfunction
-command! -range Table <line1>,<line2>call Table()
-highlight SpellBad ctermfg=red ctermbg=none guifg=red guibg=none gui=underline
 
+command! -range Table <line1>,<line2>call Table()
+vnoremap <leader>t :Table<CR>
+
+" FINAL DA FUNCAO DE TABELA
+
+" criador de tabela em md
+function! InsertMarkdownTable()
+  let l:input = input("Column headers (comma-separated): ")
+  if empty(l:input)
+    return
+  endif
+  let l:headers = map(split(l:input, ','), 'trim(v:val)')
+  let l:num_cols = len(l:headers)
+  let l:header_row = '| ' . join(l:headers, ' | ') . ' |'
+  let l:sep_row = '|' . repeat('---|', l:num_cols)
+  let l:data_row = '|' . repeat(' |', l:num_cols)
+  " Insert below current line and position cursor on first data cell
+  call append(line('.'), [l:header_row, l:sep_row, l:data_row])
+  " Move to first data cell
+  call cursor(line('.') + 3, 3)
+  startinsert
+endfunction
+
+nnoremap <leader>tm :call InsertMarkdownTable()<CR>
 
 " Sets automatically VimWiki Diary entry updates in the Diary index
 let g:vimwiki_diary_auto_index = 1
+autocmd BufLeave ~/.local/share/nvim/vimwiki/diary/*.md :VimwikiDiaryGenerateLinks
 
 
 " Open People Index
@@ -553,6 +769,32 @@ nnoremap <leader>wp :edit ~/.local/share/nvim/people/index.md<CR>
 silent! source ~/.config/nvim/shortcuts.vim
 
 
+" create the yaml config for each vimwiki markdown file
+autocmd BufNewFile ~/.local/share/nvim/vimwiki/*.md call InsertMarkdownHeader()
+
+function! InsertMarkdownHeader()
+  if expand('%:p') =~ '/vimwiki/diary/'
+    return
+  endif
+  let l:filename = expand('%:t:r')
+  let l:date = strftime('%Y-%m-%d')
+  call setline(1, [
+    \ '---',
+    \ 'title: ' . l:filename,
+    \ 'subject: ',
+    \ 'date: ' . l:date,
+    \ 'toc: true',
+    \ 'bibliography: false',
+    \ '---',
+    \ '',
+    \ ''
+    \ ])
+  call cursor(2, len('title: ' . l:filename) + 1)
+endfunction
+
+" source the image function from its file image.vim
+
+source ~/.config/nvim/functions/image.vim
 
 " === HTML heading shortcuts with blank line + <++> and correct cursor ===
 augroup html_headings
