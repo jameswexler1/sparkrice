@@ -135,3 +135,6 @@ eval "$(zoxide init zsh)"
 
 # source the bindings to open the history with ctrl+r
 source /usr/share/fzf/key-bindings.zsh
+
+# source the runit helpers to make the switch from systemd seamless. Uncomment when in artix
+# source "$HOME/.config/shell/runit-helpers.zsh"

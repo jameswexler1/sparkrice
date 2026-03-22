@@ -118,6 +118,8 @@ set clipboard+=unnamedplus
 set noshowmode
 set noruler
 set laststatus=2
+set ignorecase
+set smartcase " This and the one below are used for smart case search. If you do /banana, it will search for all bananas, including Banana. But if in your search you add a high case letter, it will search specifically for that.
 set noshowcmd
 set termguicolors
 colorscheme wal
@@ -530,12 +532,14 @@ function! s:ParsePipeTable(lines)
 endfunction
 
 " ── LaTeX output builder ─────────────────────────────────────────────────────
+" ── LaTeX output builder ─────────────────────────────────────────────────────
 function! s:BuildLatex(headers, data_rows, num_cols, caption, label, is_pipe)
   let latex = [
     \ '\begin{table}[H]',
     \ '\centering',
     \ '\caption{' . a:caption . '}',
     \ '\label{' . a:label . '}',
+    \ '\resizebox{\linewidth}{!}{%',
     \ '\begin{tabular}{l' . repeat('c', a:num_cols - 1) . '}'
     \ ]
   let header_cells = map(copy(a:headers), '"\\textbf{" . escape(s:SanitizeCell(trim(v:val)), "&%#") . "}"')
@@ -553,10 +557,10 @@ function! s:BuildLatex(headers, data_rows, num_cols, caption, label, is_pipe)
   endfor
   call add(latex, '\bottomrule')
   call add(latex, '\end{tabular}')
+  call add(latex, '}')
   call add(latex, '\end{table}')
   return latex
 endfunction
-
 " ── Main Table function ──────────────────────────────────────────────────────
 function! Table() range
   let lines = getline(a:firstline, a:lastline)
@@ -689,12 +693,13 @@ function! Table() range
   " ── LATEX OUTPUT (csv, composite header path) ─────────────────────────────
   let caption = input('Enter caption: ', 'Table Caption')
   let label = input('Enter label (e.g., tab:yourlabel): ', 'tab:yourlabel')
-  if num_header_lines == 2
+if num_header_lines == 2
     let latex = [
       \ '\begin{table}[H]',
       \ '\centering',
       \ '\caption{' . caption . '}',
       \ '\label{' . label . '}',
+      \ '\resizebox{\linewidth}{!}{%',
       \ '\begin{tabular}{l' . repeat('c', num_cols - 1) . '}'
       \ ]
     let group_row = ['']
@@ -720,11 +725,11 @@ function! Table() range
     endfor
     call add(latex, '\bottomrule')
     call add(latex, '\end{tabular}')
+    call add(latex, '}')
     call add(latex, '\end{table}')
   else
     let latex = s:BuildLatex(headers, data_rows, num_cols, caption, label, 0)
   endif
-  execute a:firstline . ',' . a:lastline . 'delete _'
   call append(a:firstline - 1, latex)
 endfunction
 
@@ -795,6 +800,7 @@ endfunction
 " source the image function from its file image.vim
 
 source ~/.config/nvim/functions/image.vim
+source ~/.config/nvim/functions/bib_inserter.vim
 
 " === HTML heading shortcuts with blank line + <++> and correct cursor ===
 augroup html_headings

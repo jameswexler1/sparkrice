@@ -1,3 +1,2 @@
 #!/bin/sh
-# ~/.local/bin/trenot   (make it executable: chmod +x ~/.local/bin/trenot)
-exec st -e /home/gustavo/.local/bin/trainspythonpackage "$@"
+exec st -e python3 /home/gustavo/.local/bin/trenot.py "$@"
