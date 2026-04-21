@@ -90,6 +90,9 @@ EXCLUDES=(
     ".local/share/gnupg"
     ".local/bin/fone.sh"
     ".local/share/keyrings"
+    ".config/shell/shortcutrc"
+    ".config/shell/shortcutenvrc"
+    ".config/shell/zshnameddirrc"
     # Add more if needed, e.g., ".config/mpd/playlists" if it has personal data
 )
 # Function to check if a path matches any exclude pattern

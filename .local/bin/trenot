@@ -1,2 +1,2 @@
 #!/bin/sh
-exec st -e python3 /home/gustavo/.local/bin/trenot.py "$@"
+exec st -e python3 $HOME/.local/bin/trenot.py "$@"
