@@ -63,7 +63,7 @@ download = [
 	{ run = "ya emit download %S",        desc = "Download" },
 ]
 play-audio = [
-    { run = "mpv --audio-display=no %s", desc = "Play (audio)", for = "linux" },
+    { run = "mpv --audio-display=no %s", desc = "Play (audio)", for = "linux", block = true },
 ]
 play-video = [
     { run = "mpv %s", desc = "Play (video)", for = "linux" },
