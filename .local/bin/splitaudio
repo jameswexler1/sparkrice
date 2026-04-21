@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# splitlecture — split an audio file into two equal halves
+# Usage: splitlecture <input_file>
+
+set -e
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: splitlecture <input_file>"
+  exit 1
+fi
+
+INPUT="$1"
+
+if [[ ! -f "$INPUT" ]]; then
+  echo "Error: file '$INPUT' not found."
+  exit 1
+fi
+
+BASE="${INPUT%.*}"
+EXT="${INPUT##*.}"
+
+DURATION=$(ffprobe -i "$INPUT" -show_entries format=duration -v quiet -of csv="p=0")
+MIDPOINT=$(echo "$DURATION / 2" | bc -l)
+
+echo "Duration: $DURATION seconds"
+echo "Splitting at: $MIDPOINT seconds"
+
+ffmpeg -i "$INPUT" -t "$MIDPOINT" "${BASE}_part1.${EXT}"
+ffmpeg -i "$INPUT" -ss "$MIDPOINT" "${BASE}_part2.${EXT}"
+
+echo "Done."
+echo "  Part 1: ${BASE}_part1.${EXT}"
+echo "  Part 2: ${BASE}_part2.${EXT}"

@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Shell script to select transcription file with dmenu, organize into dated folder, and run summarizer
 
 # Set directories
@@ -12,9 +11,9 @@ TODAY=$(date +%Y-%m-%d)
 TODAY_FOLDER="$TRANS_DIR/$TODAY"
 mkdir -p "$TODAY_FOLDER"
 
-# Find all .txt and .md files in home directory (adjust path if needed, e.g., to a specific dir)
+# Find all .txt and .md files in home directory, max 2 levels deep
 # Pipe to dmenu for selection (-i for case-insensitive, -l 20 for lines displayed)
-SELECTED_FILE=$(find "$HOME" -type f \( -name "*.txt" -o -name "*.md" \) 2>/dev/null | dmenu -i -l 20 -p "Select transcription file:")
+SELECTED_FILE=$(find "$HOME" -maxdepth 3 -type f \( -name "*.txt" -o -name "*.md" \) 2>/dev/null | dmenu -i -l 20 -p "Select transcription file:")
 
 # If a file was selected
 if [ -n "$SELECTED_FILE" ] && [ -f "$SELECTED_FILE" ]; then
@@ -33,7 +32,7 @@ if [ -n "$SELECTED_FILE" ] && [ -f "$SELECTED_FILE" ]; then
 
     # Check if Python succeeded (based on exit code)
     if [ $? -eq 0 ]; then
-        notify-send "Transcription Summarizer" "Summarization complete! Check $TODAY_FOLDER/lecture_summary.md"
+        notify-send "Transcription Summarizer" "Summarization complete! Check $TODAY_FOLDER"
     else
         notify-send "Transcription Summarizer" "Error during summarization. Check terminal for details."
     fi

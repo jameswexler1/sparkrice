@@ -1,103 +1,144 @@
 -- ~/.config/yazi/plugins/extract.yazi/main.lua
 
+-- Safe logging: ya.dbg writes to ~/.local/state/yazi/yazi.log
+-- and is safe to call from async context unlike io.open
 local function log(msg)
-  local logfile = io.open("/tmp/extract.log", "a")
-  if logfile then
-    logfile:write(os.date("%Y-%m-%d %H:%M:%S") .. " - " .. msg .. "\n")
-    logfile:close()
-  end
+  ya.dbg("extract.yazi: " .. msg)
 end
 
-log("PLUGIN LOADED: extract.yazi (version 2026-01-15)")
+-- ya.sync can only return PRIMITIVE types (strings, numbers, booleans).
+-- Returning a Url object across the thread boundary silently breaks things.
+-- Convert to string INSIDE the sync block.
+local get_target = ya.sync(function()
+  local tab = cx.active
+  local hovered = tab.current.hovered
+
+  local selected = tab.selected or {}
+  local count = 0
+  local selected_path = nil
+
+  for u in pairs(selected) do
+    count = count + 1
+    if count > 1 then
+      return nil, "multiple"
+    end
+    selected_path = tostring(u)  -- convert to string HERE, inside sync
+  end
+
+  if count == 1 then
+    return selected_path, nil
+  elseif hovered then
+    return tostring(hovered.url), nil  -- string, not Url object
+  else
+    return nil, "none"
+  end
+end)
 
 return {
   entry = function()
-    log("ENTRY: Plugin triggered")
+    log("triggered")
 
-    local tab = cx.active
-    local hovered = tab.current.hovered
-    local hovered_url = hovered and hovered.url  -- This is already a Url object
+    local file, problem = get_target()
 
-    local selected = tab.selected or {}
-    local selected_count = 0
-    local selected_url = nil
-    for u in pairs(selected) do
-      selected_count = selected_count + 1
-      if selected_count > 1 then
-        ya.notify({ title = "Extract", content = "Please select or hover a single archive.", level = "warn", timeout = 5 })
-        log("ABORT: Multiple files selected")
-        return
-      end
-      selected_url = u  -- u is already a Url object
-    end
-
-    local url
-    if selected_count == 1 then
-      url = selected_url
-    elseif hovered_url then
-      url = hovered_url
-    else
+    if problem == "multiple" then
+      ya.notify({ title = "Extract", content = "Select a single archive.", level = "warn", timeout = 5 })
+      return
+    elseif problem == "none" or not file then
       ya.notify({ title = "Extract", content = "No file selected or hovered.", level = "warn", timeout = 5 })
-      log("ABORT: No file")
       return
     end
 
-    local file = tostring(url)  -- Convert Url to string path safely
     local basename = file:match("([^/]+)$") or file
-    log("File: " .. file .. " | Basename: " .. basename)
+    log("target: " .. file)
 
-    local ans, event = ya.input({ title = "Extract " .. basename .. "? [y/N]" })
-    if event ~= 1 or (ans or ""):lower() ~= "y" then
-      log("CANCELED by user")
+    -- ya.confirm body must be ui.Text, not a plain string
+    local confirmed = ya.confirm {
+      pos   = { "center", w = 60, h = 10 },
+      title = "Extract Archive",
+      body  = ui.Text("Extract " .. basename .. "?"):wrap(ui.Wrap.YES),
+    }
+    if not confirmed then
+      log("cancelled")
       return
     end
-    log("User confirmed")
 
     local lower = basename:lower()
-    local cmd_prefix
+
+    -- ipairs preserves order: multi-extension patterns (.tar.gz) must
+    -- come before their suffixes (.gz), or the wrong tool gets matched.
     local patterns = {
-      ["%.tar%.bz2$"] = "tar xjf",
-      ["%.tbz2$"]     = "tar xjf",
-      ["%.tar%.gz$"]  = "tar xzf",
-      ["%.tgz$"]      = "tar xzf",
-      ["%.tar%.xz$"]  = "tar xJf",  -- Correct for xz
-      ["%.tar$"]      = "tar xf",
-      ["%.bz2$"]      = "bunzip2",
-      ["%.gz$"]       = "gunzip",
-      ["%.rar$"]      = "unrar e",
-      ["%.zip$"]      = "unzip",
-      ["%.7z$"]       = "7z x",
-      ["%.xz$"]       = "xz -d",
-      ["%.z$"]        = "uncompress",
+      { "%.tar%.bz2$",  "tar",       "xjf" },
+      { "%.tbz2$",      "tar",       "xjf" },
+      { "%.tar%.gz$",   "tar",       "xzf" },
+      { "%.tgz$",       "tar",       "xzf" },
+      { "%.tar%.xz$",   "tar",       "xJf" },
+      { "%.txz$",       "tar",       "xJf" },
+      { "%.tar$",       "tar",       "xf"  },
+      { "%.zip$",       "unzip",     nil   },
+      { "%.7z$",        "7z",        "x"   },
+      { "%.rar$",       "unrar",     "e"   },
+      { "%.bz2$",       "bunzip2",   nil   },
+      { "%.gz$",        "gunzip",    nil   },
+      { "%.xz$",        "xz",        "-d"  },
+      { "%.z$",         "uncompress", nil  },
     }
 
-    for pat, cmd in pairs(patterns) do
-      if lower:match(pat) then
-        cmd_prefix = cmd
+    local prog, flag
+    for _, pat in ipairs(patterns) do
+      if lower:match(pat[1]) then
+        prog = pat[2]
+        flag = pat[3]
         break
       end
     end
 
-    if not cmd_prefix then
-      ya.notify({ title = "Extract", content = "Unsupported archive: " .. basename, level = "warn", timeout = 5 })
-      log("UNSUPPORTED format")
+    if not prog then
+      ya.notify({ title = "Extract", content = "Unsupported format: " .. basename, level = "warn", timeout = 5 })
+      log("unsupported: " .. basename)
       return
     end
 
-    local full_cmd = cmd_prefix .. " " .. ya.quote(file)
-    log("EXEC: " .. full_cmd)
+    local args = {}
+    if flag then args[#args + 1] = flag end
+    args[#args + 1] = file
 
-    local status = os.execute(full_cmd)
-    ya.render()  -- Refresh view
+    log("exec: " .. prog .. " " .. table.concat(args, " "))
 
-    if status == 0 or status == true then
-      ya.notify({ title = "📂 Extracted", content = basename .. " extracted successfully.", level = "info", timeout = 5 })
-      log("SUCCESS")
-    else
-      ya.notify({ title = "Extract failed", content = "Command failed (missing tool?).", level = "error", timeout = 5 })
-      log("FAIL: status " .. tostring(status))
+    -- stdout/stderr default to NULL; stdin NULL prevents interactive prompts.
+    -- Use wait() not wait_with_output() — no output to capture, and piped
+    -- buffers can fill and deadlock on large extractions.
+    local child, spawn_err = Command(prog)
+      :args(args)
+      :stdin(Command.NULL)
+      :stdout(Command.NULL)
+      :stderr(Command.NULL)
+      :spawn()
+
+    if not child then
+      ya.notify({
+        title   = "Extract failed",
+        content = prog .. " could not start. Is it installed?\n(" .. tostring(spawn_err) .. ")",
+        level   = "error",
+        timeout = 8,
+      })
+      log("spawn failed: " .. tostring(spawn_err))
+      return
     end
 
-    log("END: Plugin finished")
+    local status, wait_err = child:wait()
+
+    if status and status.success then
+      ya.notify({ title = "📂 Extracted", content = basename .. " extracted successfully.", level = "info", timeout = 5 })
+      log("success")
+    else
+      local code = status and tostring(status.code) or tostring(wait_err)
+      ya.notify({
+        title   = "Extract failed",
+        content = prog .. " exited with error " .. code .. ".\nSee terminal for details.",
+        level   = "error",
+        timeout = 8,
+      })
+      log("failed, code: " .. code)
+    end
   end,
 }

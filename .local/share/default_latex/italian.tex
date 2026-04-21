@@ -1,0 +1,268 @@
+% ============================================================
+%  Italiano ogni giorno — Language Study Template
+%  Pandoc LaTeX template  →  XeLaTeX → PDF
+%  Place at: ~/.local/share/default_latex/italian.tex
+% ============================================================
+
+\documentclass[11pt, a4paper]{article}
+
+% ── Page geometry ────────────────────────────────────────────
+\usepackage[
+  a4paper,
+  left=2cm, right=2cm,
+  top=2.4cm, bottom=2.8cm,
+  headheight=15pt
+]{geometry}
+
+% ── Font & encoding (XeLaTeX) ────────────────────────────────
+\usepackage{fontspec}
+\usepackage{microtype}
+\setmainfont{Libertinus Serif}
+\setsansfont{Libertinus Sans}
+\setmonofont[Scale=0.88]{DejaVu Sans Mono}
+
+% ── Language (Italian + Portuguese, XeLaTeX-native) ──────────
+\usepackage{polyglossia}
+\setdefaultlanguage{italian}
+\setotherlanguage{portuges}
+
+% ── Colors ───────────────────────────────────────────────────
+\usepackage{xcolor}
+\definecolor{itgreen}{RGB}{0, 120, 60}       % primary accent — Italian green
+\definecolor{itred}{RGB}{175, 30, 30}        % Italian red (flag accent)
+\definecolor{degreen}{RGB}{30, 110, 65}      % correct answers
+\definecolor{dered}{RGB}{160, 30, 30}        % warning / error
+\definecolor{deamber}{RGB}{180, 110, 0}      % exercise / tip
+\definecolor{depurple}{RGB}{90, 40, 130}     % dialog
+\definecolor{degray}{RGB}{100, 100, 100}     % subtle text
+\definecolor{rulegray}{RGB}{190, 190, 190}   % rule lines
+\definecolor{bggray}{RGB}{248, 248, 246}     % light bg for boxes
+\definecolor{bggreen}{RGB}{237, 248, 242}    % grammar box bg
+\definecolor{bgred}{RGB}{252, 241, 241}      % writing prompt bg
+\definecolor{bgamber}{RGB}{252, 247, 235}    % exercise / tip bg
+\definecolor{bgpurple}{RGB}{246, 241, 252}   % dialog bg
+\definecolor{bgattenzione}{RGB}{255, 248, 230} % false friends / watch-out
+
+% ── Tables ───────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{needspace}
+\usepackage{caption}
+\DeclareCaptionFormat{blank}{}
+\captionsetup{format=blank, aboveskip=0pt, belowskip=0pt}
+
+% ── Lists ────────────────────────────────────────────────────
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=3pt, parsep=1pt, leftmargin=1.4em}
+\setlist[itemize,1]{label=\textcolor{itgreen}{\textbullet}}
+\setlist[itemize,2]{label=\textcolor{degray}{\textendash}}
+\setlist[enumerate,1]{label=\textcolor{itgreen}{\arabic*.}}
+
+% ── Graphics ─────────────────────────────────────────────────
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\makeatother
+\setkeys{Gin}{width=\maxwidth, keepaspectratio}
+
+% ── tcolorbox ────────────────────────────────────────────────
+\usepackage[most]{tcolorbox}
+
+% ── Custom boxes ─────────────────────────────────────────────
+
+% Grammar explanation box
+\newtcolorbox{grammaticabox}[1][]{
+  colback=bggreen, colframe=itgreen,
+  title={\small\bfseries\color{white}\ifx&#1&Grammatica\else#1\fi},
+  coltitle=white, fonttitle=\small\bfseries,
+  arc=3pt, boxrule=0pt, leftrule=3pt,
+  left=6pt, right=6pt, top=5pt, bottom=5pt,
+  before upper={\setlength{\parskip}{4pt}}
+}
+
+% Exercise box
+\newtcolorbox{eserciziobox}{
+  colback=bgamber, colframe=deamber,
+  title={\small\bfseries\color{white} Esercizio},
+  coltitle=white, fonttitle=\small\bfseries,
+  arc=3pt, boxrule=0pt, leftrule=3pt,
+  left=6pt, right=6pt, top=5pt, bottom=5pt,
+  before upper={\setlength{\parskip}{4pt}}
+}
+
+% Answer box
+\newtcolorbox{rispostebox}{
+  colback=bggreen, colframe=degreen,
+  title={\small\bfseries\color{white} Risposte},
+  coltitle=white, fonttitle=\small\bfseries,
+  arc=3pt, boxrule=0pt, leftrule=3pt,
+  left=6pt, right=6pt, top=5pt, bottom=5pt,
+  before upper={\setlength{\parskip}{3pt}}
+}
+
+% Reading text box
+\newtcolorbox{letturabox}{
+  colback=bggray, colframe=rulegray,
+  arc=3pt, boxrule=0.5pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  before upper={\setlength{\parskip}{5pt}},
+  breakable
+}
+
+% Dialog box
+\newtcolorbox{dialogobox}{
+  colback=bgpurple, colframe=depurple,
+  arc=3pt, boxrule=0pt, leftrule=3pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  before upper={\setlength{\parskip}{4pt}}
+}
+
+% Writing prompt box
+\newtcolorbox{scritturabox}{
+  colback=bgred, colframe=itred,
+  title={\small\bfseries\color{white} Scrittura},
+  coltitle=white, fonttitle=\small\bfseries,
+  arc=3pt, boxrule=0pt, leftrule=3pt,
+  left=6pt, right=6pt, top=5pt, bottom=5pt,
+  before upper={\setlength{\parskip}{4pt}}
+}
+
+% Attenzione box — false friends, PT vs IT traps
+\newtcolorbox{attenzionebox}{
+  colback=bgattenzione, colframe=deamber,
+  title={\small\bfseries\color{deamber} {[}!{]} Attenzione --- Falsi Amici / Armadilha},
+  coltitle=deamber, fonttitle=\small\bfseries,
+  arc=3pt, boxrule=0.5pt,
+  left=6pt, right=6pt, top=4pt, bottom=4pt,
+  fontupper=\small
+}
+
+% Tip / Nota box
+\newtcolorbox{notabox}{
+  colback=bgamber, colframe=deamber,
+  arc=3pt, boxrule=0pt, leftrule=3pt,
+  left=6pt, right=6pt, top=4pt, bottom=4pt,
+  fontupper=\small
+}
+
+% ── Custom commands ───────────────────────────────────────────
+
+% Italian word highlight (bold + Italian green)
+% Named \itw (Italian word) to avoid conflict with legacy LaTeX \it command
+\newcommand{\itw}[1]{\textbf{\textcolor{itgreen}{#1}}}
+
+% Portuguese translation/gloss (italic gray)
+\newcommand{\pt}[1]{\textit{\textcolor{degray}{#1}}}
+
+% Grammar term
+\newcommand{\gram}[1]{\textsc{\textcolor{itgreen}{#1}}}
+
+% Correct answer marker
+\newcommand{\giusto}[1]{\textcolor{degreen}{\textbf{#1}}}
+
+% Blank for exercises
+\newcommand{\blank}{\underline{\hspace{2.5cm}}}
+
+% False friend highlight (red, to signal danger)
+\newcommand{\falso}[1]{\textbf{\textcolor{itred}{#1}}}
+
+% Day number display
+\newcommand{\daynumber}[1]{%
+  {\large\sffamily\bfseries\textcolor{itgreen}{Giorno #1}}%
+}
+
+% ── Section formatting ────────────────────────────────────────
+\usepackage{titlesec}
+
+\titleformat{\section}{
+  \normalfont\large\bfseries\sffamily\color{itgreen}
+}{}{0em}{}[{\color{rulegray}\vspace{-6pt}\rule{\linewidth}{0.6pt}}]
+
+\titleformat{\subsection}{
+  \normalfont\normalsize\bfseries\color{itgreen}
+}{}{0em}{}
+
+\titleformat{\subsubsection}{
+  \normalfont\normalsize\itshape\color{degray}
+}{}{0em}{}
+
+\titlespacing{\section}{0pt}{14pt}{5pt}
+\titlespacing{\subsection}{0pt}{10pt}{3pt}
+\titlespacing{\subsubsection}{0pt}{7pt}{2pt}
+
+% ── Paragraph spacing ────────────────────────────────────────
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+
+% ── Header / Footer ──────────────────────────────────────────
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{%
+  \small\sffamily\textcolor{degray}{%
+    \textbf{Italiano A2{\,→\,}B2}\enspace·\enspace
+    $if(subject)$$subject$$else$Italiano ogni giorno$endif$%
+  }%
+}
+\fancyhead[R]{%
+  \small\sffamily\textcolor{degray}{%
+    $if(title)$$title$$endif$%
+  }%
+}
+\fancyfoot[L]{\small\sffamily\textcolor{degray}{$if(date)$$date$$endif$}}
+\fancyfoot[C]{\small\sffamily\textcolor{degray}{\thepage}}
+\fancyfoot[R]{\small\sffamily\textcolor{degray}{$if(phase)$$phase$$endif$}}
+
+% ── Hyperlinks ───────────────────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = itgreen,
+  urlcolor   = itgreen,
+  citecolor  = dered,
+  pdftitle   = {$if(title)$$title$$endif$},
+  pdfauthor  = {Italiano ogni giorno}
+}
+
+% ── Quotes ───────────────────────────────────────────────────
+\usepackage{csquotes}
+
+% ── Pandoc boilerplate ───────────────────────────────────────
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% ── Metadata ─────────────────────────────────────────────────
+\author{}
+$if(title)$
+  \title{%
+    \vspace{-1.5em}%
+    \sffamily\bfseries\Large\textcolor{itgreen}{$title$}\\[4pt]
+    \normalfont\normalsize\textcolor{degray}{$if(subtitle)$$subtitle$$endif$}%
+  }
+$else$
+  \title{}
+$endif$
+$if(date)$\date{\small\sffamily\textcolor{degray}{$date$}}$else$\date{}$endif$
+
+% ============================================================
+\begin{document}
+
+\maketitle
+\vspace{-1em}
+{\color{rulegray}\rule{\linewidth}{0.8pt}}
+\vspace{0.5em}
+\thispagestyle{fancy}
+
+$if(toc)$
+\tableofcontents
+\clearpage
+$endif$
+
+$body$
+
+\end{document}

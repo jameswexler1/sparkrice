@@ -7,6 +7,8 @@ declare -A languages=(
 	["Hebrew"]="il"
 	["German"]="de"
 	["Polish"]="pl"
+	["Greek"]="gr"
+	["Russian"]="ru"
 )
 
 # Aks which language

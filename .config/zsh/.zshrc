@@ -138,3 +138,7 @@ source /usr/share/fzf/key-bindings.zsh
 
 # source the runit helpers to make the switch from systemd seamless. Uncomment when in artix
 # source "$HOME/.config/shell/runit-helpers.zsh"
+
+
+# add codex instances scripts to PATH
+export PATH="$HOME/.instances/codex/bin:$PATH"

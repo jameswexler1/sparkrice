@@ -30,11 +30,12 @@ INCLUDES=(
     ".config/pipewire/pipewire.conf.d/user-session.conf"
     ".config/pulse/daemon.conf"
     ".config/python/pythonrc"
-    ".config/shell/aliasrc"
-    ".config/shell/bm-dirs"
-    ".config/shell/bm-files"
-    ".config/shell/inputrc"
-    ".config/shell/profile"
+    ".config/shell"
+    # I changed this so it will copy all of them just by choosing the dir in the line above
+    # ".config/shell/bm-dirs"
+    # ".config/shell/bm-files"
+    # ".config/shell/inputrc"
+    # ".config/shell/profile"
     ".config/sxiv" # Symlink to nsxiv, copy as-is
     ".config/user-dirs.dirs"
     ".config/wal/postrun"
