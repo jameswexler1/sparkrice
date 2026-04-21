@@ -62,6 +62,13 @@ download = [
 	{ run = "ya emit download --open %S", desc = "Download and open" },
 	{ run = "ya emit download %S",        desc = "Download" },
 ]
+play-audio = [
+    { run = "mpv --audio-display=no %s", desc = "Play (audio)", for = "linux" },
+]
+play-video = [
+    { run = "mpv %s", desc = "Play (video)", for = "linux" },
+    { run = "mediainfo %s1; echo 'Press enter to exit'; read _", block = true, desc = "Show media info", for = "unix" },
+]
 
 [open]
 rules = [
@@ -72,7 +79,8 @@ rules = [
 	# Image
 	{ mime = "image/*", use = [ "open", "reveal" ] },
 	# Media
-	{ mime = "{audio,video}/*", use = [ "play", "reveal" ] },
+	{ mime = "audio/*", use = [ "play-audio", "reveal" ] },
+	{ mime = "video/*", use = [ "play-video", "reveal" ] },
 	# Archive
 	{ mime = "application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}", use = [ "extract", "reveal" ] },
 	# JSON

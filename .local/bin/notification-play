@@ -1,2 +1,2 @@
 #!/bin/sh
-paplay /home/gustavo/.local/share/notification_sounds/pri.wav
+paplay $HOME/.local/share/notification_sounds/pri.wav
