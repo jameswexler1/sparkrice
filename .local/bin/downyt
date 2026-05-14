@@ -6,26 +6,85 @@
 # - For playlists, downloads into a subfolder named after the playlist title
 # - Audio downloads in opus
 # - Video downloads in MP4 (best quality)
+# - Watch mode: streams directly via mpv, nothing saved to disk
+# - TikTok: short links resolved to embed URLs (no login required)
 # - Clipboard + dmenu input
 # - Notifications
 
 OUTPUT_DIR="${XDG_DOWNLOAD_DIR:-$HOME/Downloads}"
 
-# Ask user to choose download type
-download_type=$(printf "Audio\nVideo" | dmenu -p "Choose download type:")
+# ─── URL normalization ────────────────────────────────────────────────────────
+normalize_url() {
+    local u="$1"
+
+    # TikTok short links (vm.tiktok.com, vt.tiktok.com):
+    # Follow redirect with GET (HEAD requests don't work on TikTok's redirect chain),
+    # extract the video ID, rewrite to embed URL which works without login.
+    if echo "$u" | grep -qiE "(vm|vt)\.tiktok\.com"; then
+        local resolved
+        resolved=$(curl -sL \
+            --max-redirs 10 \
+            --max-time 10 \
+            -A "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0" \
+            -o /dev/null \
+            -w '%{url_effective}' \
+            "$u" 2>/dev/null)
+
+        local video_id
+        video_id=$(echo "$resolved" | grep -oE '/video/[0-9]+' | grep -oE '[0-9]+')
+
+        if [ -n "$video_id" ]; then
+            u="https://www.tiktok.com/embed/v2/${video_id}"
+            notify-send "yt-dl" "TikTok → embed URL: $u"
+        else
+            notify-send "yt-dl" "Warning: Could not extract TikTok video ID. Will attempt as-is."
+        fi
+    fi
+
+    # tiktok.com/embed/v2/ID → already correct, keep as-is
+    # tiktok.com/@user/video/ID → keep as-is
+
+    echo "$u"
+}
+
+# ─── Download type ────────────────────────────────────────────────────────────
+download_type=$(printf "Audio\nVideo\nWatch" | dmenu -p "Choose download type:")
 [ -z "$download_type" ] && notify-send "yt-dl" "No download type selected. Exiting." && exit 1
 
-# Fetch clipboard content and use as dmenu default input
+# ─── URL input ────────────────────────────────────────────────────────────────
 clipboard_content=$(xclip -o -selection clipboard 2>/dev/null)
-url=$(echo "$clipboard_content" | dmenu -p "Enter URL:")
+raw_url=$(echo "$clipboard_content" | dmenu -p "Enter URL:")
+url=$(normalize_url "$raw_url")
 
-# Initialize variables
+# ─── Watch mode (early exit — skip all playlist/format logic) ─────────────────
+if [ "$download_type" = "Watch" ]; then
+    if ! echo "$url" | grep -qE "^https?://"; then
+        notify-send "yt-dl" "That doesn't look like a valid URL. Exiting."
+        exit 1
+    fi
+
+    notify-send "yt-dl" "Opening in mpv..."
+
+    if mpv --ytdl-format="bestvideo+bestaudio/best" "$url"; then
+        :
+    else
+        # Fallback: download to temp file, play, delete
+        notify-send "yt-dl" "Direct stream failed, downloading to tmp..."
+        tmp_file=$(mktemp /tmp/yt-dl-watch-XXXXXX.mp4)
+        yt-dlp --no-playlist -f "best[ext=mp4]/best" \
+            -o "$tmp_file" "$url" && mpv "$tmp_file"
+        rm -f "$tmp_file"
+    fi
+    exit 0
+fi
+
+# ─── Initialize variables ─────────────────────────────────────────────────────
 download_url="$url"
 playlist_option="--no-playlist"
 is_playlist=false
 playlist_title=""
 
-# Check if URL is a playlist (look for list= parameter)
+# ─── Playlist detection ───────────────────────────────────────────────────────
 if echo "$url" | grep -q "[?&]list="; then
     notify-send "yt-dl" "Playlist detected."
     playlist_choice=$(printf "Single video\nEntire playlist" | dmenu -p "Download:")
@@ -35,59 +94,77 @@ if echo "$url" | grep -q "[?&]list="; then
         download_url="$url"
         playlist_option=""
         is_playlist=true
-        # Fetch playlist title for folder and notification
         playlist_title=$(yt-dlp --get-filename -o "%(playlist_title)s" "$download_url" 2>/dev/null | head -n1)
         if [ -z "$playlist_title" ]; then
             notify-send "yt-dl" "Could not fetch playlist title. Using default folder name."
             playlist_title="Playlist"
         fi
     else
-        # Clean URL to remove playlist parameters (list, index)
         download_url=$(echo "$url" | sed -E 's/[?&]list=[^&]+//g; s/[?&]index=[^&]+//g')
         playlist_option="--no-playlist"
         is_playlist=false
     fi
 fi
 
-# Set output template based on playlist choice
+# ─── Output template ──────────────────────────────────────────────────────────
 if [ "$is_playlist" = true ]; then
     output_template="${OUTPUT_DIR}/${playlist_title}/%(title)s.%(ext)s"
 else
     output_template="${OUTPUT_DIR}/%(title)s.%(ext)s"
 fi
 
-# Validate URL
+# ─── Validate URL ─────────────────────────────────────────────────────────────
 if ! echo "$download_url" | grep -qE "^https?://"; then
     notify-send "yt-dl" "That doesn't look like a valid URL. Exiting."
     exit 1
 fi
 
-# Check if yt-dlp finds any downloadable media
-test_filename=$(yt-dlp $playlist_option --get-filename -o "%(title)s.%(ext)s" "$download_url" 2>/dev/null | head -n1)
-if [ -z "$test_filename" ]; then
-    notify-send "yt-dl" "No downloadable media found. Try opening the direct video page."
-    exit 1
+# ─── Pre-flight check ─────────────────────────────────────────────────────────
+# TikTok embed URLs use the generic extractor which doesn't support --get-filename
+# cleanly, so skip the pre-flight for those.
+if echo "$download_url" | grep -q "tiktok\.com/embed"; then
+    test_filename="tiktok_video"
+else
+    test_filename=$(yt-dlp $playlist_option --get-filename \
+        -o "%(title)s.%(ext)s" "$download_url" 2>/dev/null | head -n1)
+    if [ -z "$test_filename" ]; then
+        notify-send "yt-dl" "No downloadable media found. Try opening the direct video page."
+        exit 1
+    fi
 fi
 
-# Notify that the download has started
+# ─── Download ─────────────────────────────────────────────────────────────────
 notify-send "yt-dl" "Download started..."
 
-# Download process
 if [ "$download_type" = "Audio" ]; then
-    yt-dlp $playlist_option -x --audio-format opus --audio-quality 0 -o "$output_template" "$download_url"
+    if echo "$download_url" | grep -q "tiktok\.com/embed"; then
+        yt-dlp --no-playlist -x --audio-format opus --audio-quality 0 \
+            -o "$output_template" "$download_url"
+    else
+        yt-dlp $playlist_option -x --audio-format opus --audio-quality 0 \
+            -o "$output_template" "$download_url"
+    fi
 else
-    # Video: best MP4 video + best M4A audio, fallback to single MP4, merge to MP4
-    yt-dlp $playlist_option -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]" --merge-output-format mp4 -o "$output_template" "$download_url"
+    if echo "$download_url" | grep -q "tiktok\.com/embed"; then
+        # Generic extractor returns a single merged stream; recode to mp4
+        yt-dlp --no-playlist -f "best" --recode-video mp4 \
+            -o "$output_template" "$download_url"
+    else
+        yt-dlp $playlist_option \
+            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]" \
+            --merge-output-format mp4 \
+            -o "$output_template" "$download_url"
+    fi
 fi
 
-# Notify success or failure
+# ─── Result notification ──────────────────────────────────────────────────────
 if [ $? -eq 0 ]; then
     if [ "$is_playlist" = true ]; then
         notify-send "yt-dl" "Playlist download finished in folder: $playlist_title"
     else
         notify-send "yt-dl" "Download finished: $test_filename"
     fi
-    paplay $HOME/.local/share/notification_sounds/peeee.wav
+    paplay "$HOME/.local/share/notification_sounds/peeee.wav"
 else
     notify-send "yt-dl" "Download failed. Check terminal output for errors."
     paplay output.wav

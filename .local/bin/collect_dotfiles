@@ -89,6 +89,8 @@ EXCLUDES=(
     ".config/BraveSoftware"
     ".local/share/gnupg"
     ".local/bin/fone.sh"
+    ".local/bin/filen"
+    ".local/bin/curl-cffi"
     ".local/share/keyrings"
     ".config/shell/shortcutrc"
     ".config/shell/shortcutenvrc"

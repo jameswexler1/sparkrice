@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# vcbackup — VeraCrypt container backup tool
+# Usage:
+#   vcbackup [push|verify|repair|pushall] <file.vc|directory>
+#   vcbackup -r <remote:path> [push|verify|repair|pushall] <file.vc|directory>
+set -euo pipefail
+
+DEFAULT_PATH="Containers"
+REDUNDANCY=10
+
+usage() {
+  echo "Usage: vcbackup [-r remote:path] push|verify|repair|pushall <file.vc|directory>"
+  echo "  -r    rclone remote and path (skips interactive picker)"
+  exit 1
+}
+
+par2_base() {
+  echo "${1}.par2"
+}
+
+# Parse optional -r flag, otherwise prompt with fzf
+REMOTE=""
+if [[ "${1:-}" == "-r" ]]; then
+  [[ -z "${2:-}" ]] && { echo "Error: -r requires a remote argument"; usage; }
+  REMOTE="$2"
+  shift 2
+else
+  REMOTE=$(rclone listremotes | fzf --prompt="Select remote: " --height=10)
+  [[ -z "$REMOTE" ]] && { echo "No remote selected."; exit 1; }
+  REMOTE="${REMOTE}${DEFAULT_PATH}"
+fi
+
+cmd_push() {
+  local vc="$1"
+  [[ -f "$vc" ]] || { echo "File not found: $vc"; exit 1; }
+  echo "==> Generating PAR2 parity for $vc ..."
+  par2create -r"$REDUNDANCY" -n1 -q "$(par2_base "$vc")" "$vc"
+  echo "==> Uploading to $REMOTE ..."
+  rclone copy "$vc" "$REMOTE" --checksum --progress
+  rclone copy "$(par2_base "$vc")" "$REMOTE" --checksum --progress
+  for f in "${vc}".vol*.par2; do
+    [[ -f "$f" ]] && rclone copy "$f" "$REMOTE" --checksum --progress
+  done
+  echo "==> Cleaning up local parity files ..."
+  rm -f "$(par2_base "$vc")" "${vc}".vol*.par2
+  echo "==> Done: $vc"
+}
+
+cmd_verify() {
+  local vc="$1"
+  local base
+  base=$(basename "$vc")
+  echo "==> Downloading $base and parity from $REMOTE ..."
+  rclone copy "$REMOTE/$base" . --checksum --progress
+  rclone copy "$REMOTE/${base}.par2" . --checksum --progress
+  echo "==> Verifying ..."
+  par2verify -q "${base}.par2" "$base"
+  echo "==> $base is intact."
+  rm -f "${base}.par2"
+}
+
+cmd_repair() {
+  local vc="$1"
+  local base
+  base=$(basename "$vc")
+  echo "==> Downloading all files for $base ..."
+  rclone copy "$REMOTE/$base" . --checksum --progress
+  rclone copy "$REMOTE" . --filter "+ ${base}*.par2" --filter "- *" --progress
+  echo "==> Attempting repair ..."
+  if par2repair -q "${base}.par2" "$base"; then
+    echo "==> Repair successful. Re-uploading ..."
+    rclone copy "$base" "$REMOTE" --checksum --progress
+  else
+    echo "==> Repair FAILED. Corruption exceeds parity capacity."
+  fi
+  rm -f "${base}.par2" "${base}".vol*.par2
+}
+
+cmd_pushall() {
+  local dir="$1"
+  [[ -d "$dir" ]] || { echo "Directory not found: $dir"; exit 1; }
+  for vc in "$dir"/*.vc; do
+    [[ -f "$vc" ]] || continue
+    cmd_push "$vc"
+  done
+}
+
+[[ $# -lt 2 ]] && usage
+case "$1" in
+  push)    cmd_push    "$2" ;;
+  verify)  cmd_verify  "$2" ;;
+  repair)  cmd_repair  "$2" ;;
+  pushall) cmd_pushall "$2" ;;
+  *)       usage ;;
+esac
