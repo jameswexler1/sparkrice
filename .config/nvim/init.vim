@@ -111,7 +111,7 @@ lualine_x = { undo_info, 'encoding', 'fileformat', 'filetype', wordcount },
 EOF
 
 set title
-set bg=dark " changed by claude for pywal thing
+set bg=dark
 set mouse=a
 set nohlsearch
 set clipboard+=unnamedplus
