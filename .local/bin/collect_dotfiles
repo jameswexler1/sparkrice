@@ -2,6 +2,7 @@
 # Define the target directory for your dotfiles repo
 DOTFILES_DIR="$HOME/Work/GITHUB/sparkrice"
 mkdir -p "$DOTFILES_DIR"
+
 # List of exact files/directories to include, based on voidrice tree (excluding repo metadata)
 # Removed ".local/bin/*" to handle it specially below
 INCLUDES=(
@@ -31,12 +32,7 @@ INCLUDES=(
     ".config/pulse/daemon.conf"
     ".config/python/pythonrc"
     ".config/shell"
-    # I changed this so it will copy all of them just by choosing the dir in the line above
-    # ".config/shell/bm-dirs"
-    # ".config/shell/bm-files"
-    # ".config/shell/inputrc"
-    # ".config/shell/profile"
-    ".config/sxiv" # Symlink to nsxiv, copy as-is
+    ".config/sxiv"
     ".config/user-dirs.dirs"
     ".config/wal/postrun"
     ".config/wal/templates/dunstrc"
@@ -50,7 +46,7 @@ INCLUDES=(
     ".config/zathura/zathurarc"
     ".config/zsh/.zshrc"
     ".config/zsh/before_prompt_customization_march_14"
-    ".gtkrc-2.0" # Symlink, copy as-is
+    ".gtkrc-2.0"
     ".local/share/applications/file.desktop"
     ".local/share/applications/img.desktop"
     ".local/share/applications/mail.desktop"
@@ -59,7 +55,7 @@ INCLUDES=(
     ".local/share/applications/text.desktop"
     ".local/share/applications/torrent.desktop"
     ".local/share/applications/video.desktop"
-    ".local/share/bg" # Symlink, copy as-is
+    ".local/share/bg"
     ".local/share/larbs/chars/emoji"
     ".local/share/larbs/chars/font-awesome"
     ".local/share/larbs/emoji"
@@ -72,10 +68,10 @@ INCLUDES=(
     ".local/share/larbs/ttymaps.kmap"
     ".local/share/thiemeyer_road_to_samarkand.jpg"
     ".local/share/default_latex"
-    ".xprofile" # Symlink, copy as-is
-    ".zprofile" # Symlink, copy as-is
-    # Add any of *your* extra custom files/dirs here that aren't in sparkrice, e.g., ".config/myapp/config"
+    ".xprofile"
+    ".zprofile"
 )
+
 # List of patterns to exclude (sensitive or irrelevant; expand as needed for your setup)
 EXCLUDES=(
     ".ssh"
@@ -95,49 +91,56 @@ EXCLUDES=(
     ".config/shell/shortcutrc"
     ".config/shell/shortcutenvrc"
     ".config/shell/zshnameddirrc"
-    # Add more if needed, e.g., ".config/mpd/playlists" if it has personal data
 )
-# Function to check if a path matches any exclude pattern
+
+# Return success when a path matches one of the exclusion patterns.
 is_excluded() {
     local path="$1"
+    local exclude
     for exclude in "${EXCLUDES[@]}"; do
         if [[ "$path" == *"$exclude"* ]]; then
-            return 0 # Excluded
+            return 0
         fi
     done
-    return 1 # Not excluded
+    return 1
 }
-# Copy the includes, creating parent dirs as needed, skipping excludes
+
+# Copy the includes, creating parent dirs as needed, skipping excludes.
 for item in "${INCLUDES[@]}"; do
     src="$HOME/$item"
     dest="$DOTFILES_DIR/$item"
-if [ -e "$src" ] && ! is_excluded "$src"; then
+    if [ -e "$src" ] && ! is_excluded "$src"; then
         mkdir -p "$(dirname "$dest")"
         if [ -d "$src" ] && [ -d "$dest" ]; then
-            rm -rf "$dest"
+            rm -rf -- "$dest"
         fi
-        cp -rP "$src" "$dest"
+        cp -rP -- "$src" "$dest"
         echo "Copied: $item"
     else
         echo "Skipped (not found or excluded): $item"
     fi
 done
-# Special handling for .local/bin: copy everything except specified excludes
+
+# Copy each top-level ~/.local/bin entry as a replacement, not into an existing directory.
 BIN_SRC_DIR="$HOME/.local/bin"
 BIN_DEST_DIR="$DOTFILES_DIR/.local/bin"
 mkdir -p "$BIN_DEST_DIR"
-BIN_EXCLUDES=("askgemini.py" "summarizer.py" "gemini_query")  # Add more as needed
+BIN_EXCLUDES=("askgemini.py" "summarizer.py" "gemini_query")
+
 for file in "$BIN_SRC_DIR"/*; do
-    if [ -e "$file" ]; then # Check if file exists (handles empty dir)
-        filename=$(basename "$file")
-        if [[ ! " ${BIN_EXCLUDES[*]} " =~ " ${filename} " ]] && ! is_excluded "$file"; then
-            cp -rP "$file" "$BIN_DEST_DIR/$filename"
-            echo "Copied: .local/bin/$filename"
-        else
-            echo "Skipped (excluded): .local/bin/$filename"
-        fi
+    [ -e "$file" ] || continue
+    filename=$(basename "$file")
+
+    if [[ ! " ${BIN_EXCLUDES[*]} " =~ " ${filename} " ]] && ! is_excluded "$file"; then
+        dest="$BIN_DEST_DIR/$filename"
+        rm -rf -- "$dest"
+        cp -a -- "$file" "$dest"
+        echo "Copied: .local/bin/$filename"
+    else
+        echo "Skipped (excluded): .local/bin/$filename"
     fi
 done
+
 echo "Dotfiles copied to $DOTFILES_DIR (mirroring sparkrice structure with your custom versions)."
 echo "Review contents (e.g., tree -a $DOTFILES_DIR), remove/edit any sensitive info, then init Git: cd $DOTFILES_DIR && git init && git add . && git commit -m 'Initial commit'."
 notify-send "Collector of Dotfiles" "Finished collecting. Check repo"
