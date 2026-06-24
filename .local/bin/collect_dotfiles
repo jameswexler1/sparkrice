@@ -86,6 +86,8 @@ EXCLUDES=(
     ".local/share/gnupg"
     ".local/bin/fone.sh"
     ".local/bin/filen"
+    ".local/bin/claude"
+    ".local/bin/radian"
     ".local/bin/curl-cffi"
     ".local/share/keyrings"
     ".config/shell/shortcutrc"
