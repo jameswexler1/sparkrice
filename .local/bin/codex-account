@@ -3,6 +3,7 @@ set -euo pipefail
 
 INSTANCES_DIR="$HOME/.instances/codex"
 BIN_DIR="$HOME/.instances/codex/bin"
+SHARED_SESSIONS="$INSTANCES_DIR/sessions"
 
 usage() {
   echo "Usage:"
@@ -15,13 +16,16 @@ case "${1:-}" in
   new)
     name="${2:-}"
     [[ -z "$name" ]] && { echo "Error: provide a name"; usage; }
-
     base="$INSTANCES_DIR/$name"
     wrapper="$BIN_DIR/codex-$name"
-
     [[ -e "$wrapper" ]] && { echo "Error: codex-$name already exists"; exit 1; }
 
-    mkdir -p "$base" "$BIN_DIR"
+    mkdir -p "$base" "$BIN_DIR" "$SHARED_SESSIONS"
+
+    # Symlink shared sessions into this instance's fake HOME/.codex
+    mkdir -p "$base/.codex"
+    ln -s "$SHARED_SESSIONS" "$base/.codex/sessions"
+
     cat > "$wrapper" <<SCRIPT
 #!/usr/bin/env bash
 set -euo pipefail
@@ -35,10 +39,8 @@ SCRIPT
 
   rename)
     [[ ! -d "$INSTANCES_DIR" ]] && { echo "No instances directory found"; exit 1; }
-
-    selected=$(ls "$INSTANCES_DIR" | grep -v '^bin$' | fzf --prompt="Select instance to rename: ")
+    selected=$(ls "$INSTANCES_DIR" | grep -v '^bin$' | grep -v '^sessions$' | fzf --prompt="Select instance to rename: ")
     [[ -z "$selected" ]] && { echo "No selection made"; exit 0; }
-
     printf "New name for '%s': " "$selected"
     read -r newname
     [[ -z "$newname" ]] && { echo "Error: name cannot be empty"; exit 1; }
@@ -53,7 +55,6 @@ SCRIPT
     mv "$old_base" "$new_base"
     mv "$old_wrapper" "$new_wrapper"
     sed -i "s|export HOME=.*|export HOME=\"$new_base\"|" "$new_wrapper"
-
     echo "Renamed: codex-$selected  →  codex-$newname"
     ;;
 

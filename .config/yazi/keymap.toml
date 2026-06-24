@@ -414,3 +414,7 @@ desc = "Copy filename(s)"
 on = "U"
 run = "shell 'printf \"%s\\n\" %s | xclip -selection clipboard'"
 desc = "Copy filepath(s)"
+[[mgr.prepend_keymap]]
+on = [ "g", "r" ]
+run = "plugin sshfs-remote"
+desc = "Pick SSH remote"

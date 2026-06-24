@@ -1,40 +1,54 @@
 #!/bin/bash
-set -e
 
 IMG="/tmp/ocr_gemini.png"
 TXT="/tmp/ocr_gemini.txt"
+CONTEXT_FILE="/tmp/gemini_context.txt"
+LOG="/tmp/gem.log"
 
 # 1. Screenshot selection
-maim -s "$IMG"
+maim -s "$IMG" || exit 1
 
 # 2. OCR
 tesseract "$IMG" "${TXT%.txt}" --psm 6 --dpi 300 -l eng
-TEXT=$(cat "$TXT" | sed '/^[[:space:]]*$/d' | sed '/^[A-Z]{9,}$/d')  # Filter noise
+TEXT=$(cat "$TXT" | sed '/^[[:space:]]*$/d' | sed '/^[A-Z]{9,}$/d')
 
-# 3. Quick MCQ check
-if echo "$TEXT" | grep -qE "^(What|Which|Who|Where|When|Why|How).*?(A\)|[0-9]\.|[-•])"; then
-    MODEL="flash"
-else
-    # Ask user to choose model
-MODEL=$(printf "flash\npro\nopen" | dmenu -i -p "Model for written question? (flash=fast MCQ, pro=brief, open=full essay):")
-    [ -z "$MODEL" ] && exit 1
+# 3. Build dmenu prompt label
+CONTEXT_LABEL=""
+[ -f "$CONTEXT_FILE" ] && CONTEXT_LABEL=" [ctx]"
+
+# 4. First dmenu: pick mode
+MODEL=$(printf "flash\npro\nopen\nwith context\nadd context" \
+    | dmenu -i -p "Model${CONTEXT_LABEL}:")
+[ -z "$MODEL" ] && exit 0
+
+# 5. Add context: append OCR text to context file and exit
+if [ "$MODEL" = "add context" ]; then
+    echo "$TEXT" >> "$CONTEXT_FILE"
+    echo "[$(date)] Context updated: $(wc -w < "$CONTEXT_FILE") words saved." >> "$LOG"
+    exit 0
 fi
 
-# 4. Query Gemini with model
-ANSWER=$(echo "$TEXT" | ~/.local/bin/askgemini.py --model "$MODEL")
+# 6. With context: second dmenu to pick question type
+if [ "$MODEL" = "with context" ]; then
+    if [ ! -f "$CONTEXT_FILE" ] || [ ! -s "$CONTEXT_FILE" ]; then
+        echo "[$(date)] ERROR: 'with context' selected but no context file found." >> "$LOG"
+        exit 1
+    fi
+    SUBMODEL=$(printf "flash\nopen" | dmenu -i -p "Question type? (flash=MCQ letter, open=essay):")
+    [ -z "$SUBMODEL" ] && exit 0
+    ANSWER=$(echo "$TEXT" | ~/.local/bin/askgemini.py --model "$SUBMODEL" --context-file "$CONTEXT_FILE")
+else
+    # 7. Normal query
+    ANSWER=$(echo "$TEXT" | ~/.local/bin/askgemini.py --model "$MODEL")
+fi
 
-# 5. Show in dmenu
+# 8. Show in dmenu
 if echo "$ANSWER" | grep -q '^\*'; then
-    # Bullet list → each bullet is a separate entry
     echo "$ANSWER" | sed 's/^\* \+//' | dmenu -i -p "Hehe:"
 else
-    # Long paragraph → split by punctuation
-    # Remove newlines
     clean=$(echo "$ANSWER" | tr '\n' ' ' | sed 's/  */ /g')
-    # Split at punctuation marks and keep them
-    # This produces one entry per sentence/chunk
     echo "$clean" | sed 's/\([.!?,;]\)/\1\n/g' | sed '/^[[:space:]]*$/d' | dmenu -i -p "Hehe:"
 fi
 
-# 6. Copy to clipboard
+# 9. Copy to clipboard
 echo "$ANSWER" | xclip -selection clipboard

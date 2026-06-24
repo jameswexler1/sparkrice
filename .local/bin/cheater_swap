@@ -1,0 +1,10 @@
+#!/bin/bash
+CHEATER="$HOME/.local/bin/cheater"
+
+if grep -q "askgemini.py" "$CHEATER"; then
+    sed -i 's/askgemini\.py/askcodex.py/' "$CHEATER"
+    echo "Switched to askcodex"
+else
+    sed -i 's/askcodex\.py/askgemini.py/' "$CHEATER"
+    echo "Switched to askgemini"
+fi
