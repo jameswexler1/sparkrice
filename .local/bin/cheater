@@ -4,51 +4,112 @@ IMG="/tmp/ocr_gemini.png"
 TXT="/tmp/ocr_gemini.txt"
 CONTEXT_FILE="/tmp/gemini_context.txt"
 LOG="/tmp/gem.log"
+ANSWER_FILE="/tmp/gemini_answer.txt"
+ASKGEMINI="/home/gustavo/.local/bin/askgemini.py"
 
-# 1. Screenshot selection
-maim -s "$IMG" || exit 1
+show_short_answer() {
+    if echo "$ANSWER" | grep -q '^\*'; then
+        echo "$ANSWER" | sed 's/^\* \+//' | dmenu -i -p "Hehe:"
+    else
+        clean=$(echo "$ANSWER" | tr '\n' ' ' | sed 's/  */ /g')
+        echo "$clean" | sed 's/\([.!?,;]\)/\1\n/g' | sed '/^[[:space:]]*$/d' | dmenu -i -p "Hehe:"
+    fi
+}
 
-# 2. OCR
-tesseract "$IMG" "${TXT%.txt}" --psm 6 --dpi 300 -l eng
-TEXT=$(cat "$TXT" | sed '/^[[:space:]]*$/d' | sed '/^[A-Z]{9,}$/d')
+capture_image() {
+    maim -u -s "$IMG" || exit 1
+}
 
-# 3. Build dmenu prompt label
+capture_text() {
+    capture_image
+    tesseract "$IMG" "${TXT%.txt}" --psm 6 --dpi 300 -l eng
+    TEXT=$(cat "$TXT" | sed '/^[[:space:]]*$/d' | sed '/^[A-Z]{9,}$/d')
+}
+
+parse_image_answer() {
+    header=$(printf '%s\n' "$ANSWER" | sed -n '1p')
+
+    case "$header" in
+        DISPLAY_MODEL=mcq)
+            DISPLAY_MODEL="mcq"
+            ANSWER=$(printf '%s\n' "$ANSWER" | sed '1d')
+            ;;
+        DISPLAY_MODEL=open)
+            DISPLAY_MODEL="open"
+            ANSWER=$(printf '%s\n' "$ANSWER" | sed '1d')
+            ;;
+        *)
+            DISPLAY_MODEL="open"
+            ;;
+    esac
+}
+
+write_answer_file() {
+    tmp="${ANSWER_FILE}.$$"
+
+    if ! printf '%s\n' "$ANSWER" > "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    if ! mv -f "$tmp" "$ANSWER_FILE"; then
+        rm -f "$tmp"
+        return 1
+    fi
+}
+
+show_open_answer() {
+    dmenu -A "$ANSWER_FILE" -p "Hehe:"
+}
+
+# 1. Build dmenu prompt label
 CONTEXT_LABEL=""
 [ -f "$CONTEXT_FILE" ] && CONTEXT_LABEL=" [ctx]"
 
-# 4. First dmenu: pick mode
-MODEL=$(printf "flash\npro\nopen\nwith context\nadd context" \
+# 2. First dmenu: pick mode
+MODEL=$(printf "mcq\nopen\nimage\nwith context\nadd context" \
     | dmenu -i -p "Model${CONTEXT_LABEL}:")
 [ -z "$MODEL" ] && exit 0
 
-# 5. Add context: append OCR text to context file and exit
+# 3. Add context: append OCR text to context file and exit
 if [ "$MODEL" = "add context" ]; then
+    capture_text
     echo "$TEXT" >> "$CONTEXT_FILE"
     echo "[$(date)] Context updated: $(wc -w < "$CONTEXT_FILE") words saved." >> "$LOG"
     exit 0
 fi
 
-# 6. With context: second dmenu to pick question type
+# 4. With context: second dmenu to pick question type
 if [ "$MODEL" = "with context" ]; then
     if [ ! -f "$CONTEXT_FILE" ] || [ ! -s "$CONTEXT_FILE" ]; then
         echo "[$(date)] ERROR: 'with context' selected but no context file found." >> "$LOG"
         exit 1
     fi
-    SUBMODEL=$(printf "flash\nopen" | dmenu -i -p "Question type? (flash=MCQ letter, open=essay):")
+    SUBMODEL=$(printf "mcq\nopen" | dmenu -i -p "Question type? (mcq=short answer, open=essay):")
     [ -z "$SUBMODEL" ] && exit 0
-    ANSWER=$(echo "$TEXT" | ~/.local/bin/askgemini.py --model "$SUBMODEL" --context-file "$CONTEXT_FILE")
+    capture_text
+    ANSWER=$(echo "$TEXT" | "$ASKGEMINI" --model "$SUBMODEL" --context-file "$CONTEXT_FILE")
+    DISPLAY_MODEL="$SUBMODEL"
+elif [ "$MODEL" = "image" ]; then
+    capture_image
+    ANSWER=$(printf 'Answer the question in this screenshot.\n' | "$ASKGEMINI" --model image --image-file "$IMG")
+    DISPLAY_MODEL="image"
+    parse_image_answer
 else
-    # 7. Normal query
-    ANSWER=$(echo "$TEXT" | ~/.local/bin/askgemini.py --model "$MODEL")
+    # 5. Normal OCR query
+    capture_text
+    ANSWER=$(echo "$TEXT" | "$ASKGEMINI" --model "$MODEL")
+    DISPLAY_MODEL="$MODEL"
 fi
 
-# 8. Show in dmenu
-if echo "$ANSWER" | grep -q '^\*'; then
-    echo "$ANSWER" | sed 's/^\* \+//' | dmenu -i -p "Hehe:"
-else
-    clean=$(echo "$ANSWER" | tr '\n' ' ' | sed 's/  */ /g')
-    echo "$clean" | sed 's/\([.!?,;]\)/\1\n/g' | sed '/^[[:space:]]*$/d' | dmenu -i -p "Hehe:"
-fi
+# 6. Store every answer so dmenu -A can reopen the latest result.
+write_answer_file || exit 1
 
-# 9. Copy to clipboard
-echo "$ANSWER" | xclip -selection clipboard
+# 7. Copy to clipboard before display.
+printf '%s\n' "$ANSWER" | xclip -selection clipboard
+
+# 8. Show answer
+if [ "$DISPLAY_MODEL" = "open" ]; then
+    show_open_answer
+else
+    show_short_answer
+fi
