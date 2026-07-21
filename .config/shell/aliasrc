@@ -33,8 +33,11 @@ alias \
 	ffmpeg="ffmpeg -hide_banner"
 
 # Colorize commands when possible.
+
+# ls="ls -hN --color=auto --group-directories-first" \ old command for ls
 alias \
-	ls="ls -hN --color=auto --group-directories-first" \
+	ls="eza --icons --group-directories-first" \
+	ll="eza -lh --icons --git --group-directories-first" \
 	grep="grep --color=auto" \
 	diff="diff --color=auto" \
 	ccat="highlight --out-format=ansi" \

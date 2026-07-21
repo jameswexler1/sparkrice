@@ -1,11 +1,8 @@
 #!/bin/sh
-
 # Show a Doppler RADAR of a user's preferred location.
-
-secs=600 # Download a new doppler radar if one hasn't been downloaded in $secs seconds.
+secs=600
 radarloc="${XDG_CACHE_HOME:-$HOME/.cache}/radar"
 doppler="${XDG_CACHE_HOME:-$HOME/.cache}/doppler.gif"
-
 pickloc() { chosen="$(echo "US: CONUS: Continental United States
 US: Northeast
 US: Southeast
@@ -199,21 +196,14 @@ DE: SHH: Schleswig-Holstein
 DE: SHH: Hamburg
 DE: THU: Thuringia
 NL: The Netherlands" | dmenu -r -i -l 50 -p "Select a radar to use as default:")"
-
-# Ensure user did not escape.
-[ -z "$chosen" ] && exit 1
-
-# Set country code and radar code.
-countrycode=${chosen%%:*}
-radarcode=${chosen#* } radarcode=${radarcode%:*}
-
-# Print codes to $radarloc file.
- printf "%s,%s\\n" "$countrycode" "$radarcode" > "$radarloc" ;}
-
+	[ -z "$chosen" ] && exit 1
+	countrycode=${chosen%%:*}
+	radarcode=${chosen#* } radarcode=${radarcode%:*}
+	printf "%s,%s\\n" "$countrycode" "$radarcode" > "$radarloc" ;}
 getdoppler() {
 	country=$(cut -c -2 "$radarloc")
 	province=$(cut -c 4- "$radarloc")
-	notify-send "🌦️ Doppler RADAR" "Pulling most recent Doppler RADAR for $province."
+	notify-send "󰖕 Doppler RADAR" "Pulling most recent Doppler RADAR for $province."
 	case "$country" in
 		"US") province="$(echo "$province" | tr "[:lower:]" "[:upper:]")"
 		curl -sL "https://radar.weather.gov/ridge/standard/${province}_loop.gif" > "$doppler" ;;
@@ -222,18 +212,15 @@ getdoppler() {
 		"NL") curl -sL "https://cdn.knmi.nl/knmi/map/general/weather-map.gif" > "$doppler" ;;
 	esac
 }
-
 showdoppler() { setsid -f mpv --no-osc --loop=inf --no-terminal "$doppler" ;}
-
 case $BLOCK_BUTTON in
 	1) [ ! -f "$radarloc" ] && pickloc && getdoppler
 	[ $(($(date '+%s') - $(stat -c %Y "$doppler"))) -gt "$secs" ] && getdoppler
 	showdoppler ;;
 	2) pickloc && getdoppler && showdoppler ;;
-	3) notify-send "🗺️ Doppler RADAR module" "\- Left click for local Doppler RADAR.
+	3) notify-send "󰍝 Doppler RADAR module" "\- Left click for local Doppler RADAR.
 - Middle click to update RADAR location.
-After $secs seconds, new clicks will also automatically update the doppler RADAR."  ;;
+After $secs seconds, new clicks will also automatically update the doppler RADAR." ;;
 	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
 esac
-
-echo 🌅
+echo "󰖞"

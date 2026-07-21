@@ -1,11 +1,19 @@
 #!/bin/bash
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 IMG="/tmp/ocr_gemini.png"
 TXT="/tmp/ocr_gemini.txt"
 CONTEXT_FILE="/tmp/gemini_context.txt"
 LOG="/tmp/gem.log"
 ANSWER_FILE="/tmp/gemini_answer.txt"
-ASKGEMINI="/home/gustavo/.local/bin/askgemini.py"
+GRAPH_IMAGE="/tmp/cheater_graph_$$.png"
+PHARM_GRAPH_IMAGE="/tmp/cheater_pharm_graph_$$.png"
+PHARM_GRAPH_IMAGE_LIST="/tmp/cheater_pharm_graphs_$$.txt"
+ASKGEMINI="${ASKGEMINI:-${SCRIPT_DIR}/askgemini.py}"
+TELEGRAM_SENDER="${TELEGRAM_SENDER:-${SCRIPT_DIR}/sendtelegram.py}"
+GRAPH_RENDERER="${GRAPH_RENDERER:-${SCRIPT_DIR}/rendergraph.py}"
+PHARM_GRAPHER="${PHARM_GRAPHER:-${SCRIPT_DIR}/pharmgraph.py}"
+TELEGRAM_IMAGES=""
 
 show_short_answer() {
     if echo "$ANSWER" | grep -q '^\*'; then
@@ -20,10 +28,14 @@ capture_image() {
     maim -u -s "$IMG" || exit 1
 }
 
-capture_text() {
-    capture_image
+ocr_image() {
     tesseract "$IMG" "${TXT%.txt}" --psm 6 --dpi 300 -l eng
     TEXT=$(cat "$TXT" | sed '/^[[:space:]]*$/d' | sed '/^[A-Z]{9,}$/d')
+}
+
+capture_text() {
+    capture_image
+    ocr_image
 }
 
 parse_image_answer() {
@@ -61,12 +73,96 @@ show_open_answer() {
     dmenu -A "$ANSWER_FILE" -p "Hehe:"
 }
 
+render_graph_answer() {
+    TELEGRAM_IMAGES=""
+
+    [ "$ANSWER" = "API error — try again" ] && return 0
+    [ "$ANSWER" = "No useful response" ] && return 0
+
+    if [ ! -x "$GRAPH_RENDERER" ]; then
+        echo "[$(date)] Graph renderer is not executable: $GRAPH_RENDERER" >> "$LOG"
+        return 0
+    fi
+
+    rendered_answer=$(printf '%s\n' "$ANSWER" | "$GRAPH_RENDERER" --image-file "$GRAPH_IMAGE" 2>> "$LOG")
+    render_status=$?
+
+    if [ -n "$rendered_answer" ]; then
+        ANSWER="$rendered_answer"
+    elif [ "$render_status" -ne 0 ]; then
+        ANSWER=$(printf 'Graph instructions\nAutomatic graph rendering failed. Review the question and draw the graph manually from the answer below.\n\nAnswer\n%s' "$ANSWER")
+    fi
+
+    if [ "$render_status" -eq 0 ] && [ -s "$GRAPH_IMAGE" ]; then
+        TELEGRAM_IMAGES="$GRAPH_IMAGE"
+    else
+        echo "[$(date)] Graph image was not generated successfully." >> "$LOG"
+    fi
+}
+
+render_pharm_graph_answer() {
+    TELEGRAM_IMAGES=""
+    rm -f "$PHARM_GRAPH_IMAGE_LIST"
+
+    if [ ! -x "$PHARM_GRAPHER" ]; then
+        echo "[$(date)] Pharmacology graph helper is not executable: $PHARM_GRAPHER" >> "$LOG"
+        ANSWER="API error — try again"
+        return 0
+    fi
+
+    if [ -n "$1" ] && [ -f "$1" ]; then
+        ANSWER=$(printf '%s\n' "$TEXT" | "$PHARM_GRAPHER" --planner "$ASKGEMINI" --question-image "$IMG" --context-file "$1" --image-file "$PHARM_GRAPH_IMAGE" --image-list-file "$PHARM_GRAPH_IMAGE_LIST" 2>> "$LOG")
+    else
+        ANSWER=$(printf '%s\n' "$TEXT" | "$PHARM_GRAPHER" --planner "$ASKGEMINI" --question-image "$IMG" --image-file "$PHARM_GRAPH_IMAGE" --image-list-file "$PHARM_GRAPH_IMAGE_LIST" 2>> "$LOG")
+    fi
+    pharm_status=$?
+
+    if [ "$pharm_status" -ne 0 ] || [ -z "$ANSWER" ]; then
+        ANSWER="API error — try again"
+        echo "[$(date)] Pharmacology graph answer failed." >> "$LOG"
+        return 0
+    fi
+
+    if [ -s "$PHARM_GRAPH_IMAGE_LIST" ]; then
+        TELEGRAM_IMAGES=$(sed '/^[[:space:]]*$/d' "$PHARM_GRAPH_IMAGE_LIST")
+    elif [ -s "$PHARM_GRAPH_IMAGE" ]; then
+        TELEGRAM_IMAGES="$PHARM_GRAPH_IMAGE"
+    else
+        echo "[$(date)] No source-backed pharmacology chart image was attached." >> "$LOG"
+    fi
+}
+
+notify_telegram() {
+    [ "$ANSWER" = "API error — try again" ] && return 0
+    [ "$ANSWER" = "No useful response" ] && return 0
+
+    if [ ! -x "$TELEGRAM_SENDER" ]; then
+        echo "[$(date)] Telegram sender is not executable: $TELEGRAM_SENDER" >> "$LOG"
+        return 0
+    fi
+
+    # Copy the current shell values into a background pipeline so notification
+    # delivery never delays clipboard and dmenu handling.
+    (
+        telegram_args=()
+        if [ -n "$TELEGRAM_IMAGES" ]; then
+            while IFS= read -r image_path; do
+                [ -n "$image_path" ] || continue
+                [ -f "$image_path" ] || continue
+                telegram_args+=(--image-file "$image_path")
+            done <<< "$TELEGRAM_IMAGES"
+        fi
+
+        printf '%s\0%s' "$TEXT" "$ANSWER" | "$TELEGRAM_SENDER" "${telegram_args[@]}"
+    ) >> "$LOG" 2>&1 &
+}
+
 # 1. Build dmenu prompt label
 CONTEXT_LABEL=""
 [ -f "$CONTEXT_FILE" ] && CONTEXT_LABEL=" [ctx]"
 
 # 2. First dmenu: pick mode
-MODEL=$(printf "mcq\nopen\nimage\nwith context\nadd context" \
+MODEL=$(printf "mcq\nopen\ngraph\npharm graph\nimage\nwith context\nadd context" \
     | dmenu -i -p "Model${CONTEXT_LABEL}:")
 [ -z "$MODEL" ] && exit 0
 
@@ -84,16 +180,34 @@ if [ "$MODEL" = "with context" ]; then
         echo "[$(date)] ERROR: 'with context' selected but no context file found." >> "$LOG"
         exit 1
     fi
-    SUBMODEL=$(printf "mcq\nopen" | dmenu -i -p "Question type? (mcq=short answer, open=essay):")
+    SUBMODEL=$(printf "mcq\nopen\ngraph\npharm graph" | dmenu -i -p "Question type? (mcq/open/graph):")
     [ -z "$SUBMODEL" ] && exit 0
     capture_text
-    ANSWER=$(echo "$TEXT" | "$ASKGEMINI" --model "$SUBMODEL" --context-file "$CONTEXT_FILE")
     DISPLAY_MODEL="$SUBMODEL"
+    if [ "$SUBMODEL" = "graph" ]; then
+        ANSWER=$(echo "$TEXT" | "$ASKGEMINI" --model graph --context-file "$CONTEXT_FILE" --image-file "$IMG")
+        render_graph_answer
+    elif [ "$SUBMODEL" = "pharm graph" ]; then
+        render_pharm_graph_answer "$CONTEXT_FILE"
+    else
+        ANSWER=$(echo "$TEXT" | "$ASKGEMINI" --model "$SUBMODEL" --context-file "$CONTEXT_FILE")
+    fi
 elif [ "$MODEL" = "image" ]; then
     capture_image
+    # Gemini reads the original image; OCR provides the question text sent to Telegram.
+    ocr_image
     ANSWER=$(printf 'Answer the question in this screenshot.\n' | "$ASKGEMINI" --model image --image-file "$IMG")
     DISPLAY_MODEL="image"
     parse_image_answer
+elif [ "$MODEL" = "graph" ]; then
+    capture_text
+    ANSWER=$(echo "$TEXT" | "$ASKGEMINI" --model graph --image-file "$IMG")
+    DISPLAY_MODEL="graph"
+    render_graph_answer
+elif [ "$MODEL" = "pharm graph" ]; then
+    capture_text
+    DISPLAY_MODEL="pharm graph"
+    render_pharm_graph_answer
 else
     # 5. Normal OCR query
     capture_text
@@ -107,8 +221,11 @@ write_answer_file || exit 1
 # 7. Copy to clipboard before display.
 printf '%s\n' "$ANSWER" | xclip -selection clipboard
 
-# 8. Show answer
-if [ "$DISPLAY_MODEL" = "open" ]; then
+# 8. Send successful answers to Telegram. Failures are logged and remain non-fatal.
+notify_telegram
+
+# 9. Show answer
+if [ "$DISPLAY_MODEL" = "open" ] || [ "$DISPLAY_MODEL" = "graph" ] || [ "$DISPLAY_MODEL" = "pharm graph" ]; then
     show_open_answer
 else
     show_short_answer
