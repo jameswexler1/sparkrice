@@ -1,12 +1,12 @@
 #!/bin/sh
-
 case $BLOCK_BUTTON in
-	1) notify-send "🖥 CPU hogs" "$(ps axch -o cmd,%cpu | awk '{cmd[$1]+=$2} END {for (i in cmd) print i, cmd[i]}' | sort -nrk2  | head)\\n(100% per core)" ;;
-	2) setsid -f "$TERMINAL" -e htop ;;
-	3) notify-send "🖥 CPU module " "\- Shows CPU temperature.
+	1) notify-send "󰍛 CPU hogs" "$(ps axch -o cmd,%cpu | awk '{cmd[$1]+=$2} END {for (i in cmd) print i, cmd[i]}' | sort -nrk2 | head)\\n(100% per core)" ;;
+	2) setsid -f "$TERMINAL" -e btop ;;
+	3) notify-send "󰍛 CPU module" "\- Shows CPU temperature.
 - Click to show intensive processes.
-- Middle click to open htop." ;;
+- Middle click to open btop." ;;
 	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
 esac
 
-sensors | awk '/Core 0/ {print "🌡" $3}'
+temp=$(cat /sys/class/thermal/thermal_zone0/temp | awk '{printf "%.0f", $1/1000}')
+printf "󰍛 %s°C\n" "$temp"

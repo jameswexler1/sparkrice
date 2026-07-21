@@ -1,5 +1,4 @@
 #!/bin/sh
-
 # Usage:
 # `$0`: Ask for recording type via dmenu
 # `$0 screencast`: Record both audio and screen (microphone)
@@ -8,14 +7,11 @@
 # `$0 kill`: Kill existing recording
 #
 # If there is already a running instance, user will be prompted to end it.
-
 getdim() { xrandr | grep -oP '(?<=current ).*(?=,)' | tr -d ' ' ;}
-
 updateicon() { \
 	echo "$1" > /tmp/recordingicon
 	pkill -RTMIN+9 "${STATUSBAR:-dwmblocks}"
 	}
-
 killrecording() {
 	recpid="$(cat /tmp/recordingpid)"
 	kill -15 "$recpid"
@@ -23,7 +19,6 @@ killrecording() {
 	updateicon ""
 	pkill -RTMIN+9 "${STATUSBAR:-dwmblocks}"
 	}
-
 screencast() { \
 	ffmpeg -y \
 	-f x11grab \
@@ -33,13 +28,12 @@ screencast() { \
 	-r 24 \
 	-use_wallclock_as_timestamps 1 \
 	$AUDIO_OPT \
- 	-c:v libx264 \
+	-c:v libx264 \
 	-crf 0 -preset ultrafast -c:a aac \
 	"$HOME/screencast-$(date '+%y%m%d-%H%M-%S').mp4" &
 	echo $! > /tmp/recordingpid
-	updateicon "⏺️🎙️"
-       	}
-
+	updateicon "^c#FFD700^󰑊^d^ ^c#5691CA^󰍬^d^"
+	}
 video() { \
 	ffmpeg -y \
 	-f x11grab \
@@ -49,41 +43,36 @@ video() { \
 	-r 24 \
 	-use_wallclock_as_timestamps 1 \
 	$AUDIO_OPT \
- 	-c:v libx264 \
+	-c:v libx264 \
 	-crf 0 -preset ultrafast -c:a aac \
 	"$HOME/video-$(date '+%y%m%d-%H%M-%S').mp4" &
 	echo $! > /tmp/recordingpid
-	updateicon "⏺️🎙️"
+	updateicon "^c#FFD700^󰑊^d^ ^c#5691CA^󰍬^d^"
 	}
-
 webcamhidef() { ffmpeg \
 	-f v4l2 \
 	-i /dev/video0 \
 	-video_size 1920x1080 \
 	"$HOME/webcam-$(date '+%y%m%d-%H%M-%S').mkv" &
 	echo $! > /tmp/recordingpid
-	updateicon "🎥"
+	updateicon "^c#FFD700^󰑊^d^"
 	}
-
 webcam() { ffmpeg \
 	-f v4l2 \
 	-i /dev/video0 \
 	-video_size 640x480 \
 	"$HOME/webcam-$(date '+%y%m%d-%H%M-%S').mkv" &
 	echo $! > /tmp/recordingpid
-	updateicon "🎥"
+	updateicon "^c#FFD700^󰖠^d^"
 	}
-
-
 audio() { \
 	ffmpeg \
 	$AUDIO_OPT \
 	-c:a flac \
 	"$HOME/audio-$(date '+%y%m%d-%H%M-%S').flac" &
 	echo $! > /tmp/recordingpid
-	updateicon "🎙️"
+	updateicon "^c#5691CA^󰍬^d^"
 	}
-
 askrecording() { \
 	choice=$(printf "screencast\\nvideo\\nvideo selected\\naudio\\nwebcam\\nwebcam (hi-def)" | dmenu -i -p "Select recording style:")
 	if [ "$choice" != "webcam" ] && [ "$choice" != "webcam (hi-def)" ]; then
@@ -114,18 +103,15 @@ askrecording() { \
 		"webcam (hi-def)") webcamhidef;;
 	esac
 	}
-
 asktoend() { \
 	response=$(printf "No\\nYes" | dmenu -i -p "Recording still active. End recording?") &&
-	[ "$response" = "Yes" ] &&  killrecording
+	[ "$response" = "Yes" ] && killrecording
 	}
-
 videoselected()
 {
 	slop -f "%x %y %w %h" > /tmp/slop
 	read -r X Y W H < /tmp/slop
 	rm /tmp/slop
-
 	ffmpeg -y \
 	-f x11grab \
 	-framerate 30 \
@@ -134,13 +120,12 @@ videoselected()
 	-r 24 \
 	-use_wallclock_as_timestamps 1 \
 	$AUDIO_OPT \
- 	-c:v libx264 \
+	-c:v libx264 \
 	-crf 0 -preset ultrafast -c:a aac \
 	"$HOME/box-$(date '+%y%m%d-%H%M-%S').mp4" &
 	echo $! > /tmp/recordingpid
-	updateicon "⏺️🎙️"
+	updateicon "^c#FFD700^󰑊^d^ ^c#5691CA^󰍬^d^"
 }
-
 case "$1" in
 	screencast) AUDIO_OPT="-f alsa -ac 2 -thread_queue_size 1024 -i default"; screencast;;
 	audio) AUDIO_OPT="-f alsa -ac 2 -thread_queue_size 1024 -i default"; audio;;

@@ -3,15 +3,15 @@
 case $BLOCK_BUTTON in
 	1) setsid -w -f "$TERMINAL" -e pulsemixer; pkill -RTMIN+10 "${STATUSBAR:-dwmblocks}" ;;
 	2) wpctl set-mute @DEFAULT_SINK@ toggle ;;
-	4) wpctl set-volume @DEFAULT_SINK@ 1%+ ;;
-	5) wpctl set-volume @DEFAULT_SINK@ 1%- ;;
+	4) wpctl set-volume @DEFAULT_SINK@ 1%+ && notify-send -h string:x-dunst-stack-tag:volume "󰕾 Volume" "" -h int:value:$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf "%.0f", $2*100}') ;;
+	5) wpctl set-volume @DEFAULT_SINK@ 1%- && notify-send -h string:x-dunst-stack-tag:volume "󰕾 Volume" "" -h int:value:$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf "%.0f", $2*100}') ;;
 	3) notify-send "󰕾 Volume module" "\- Shows volume 󰕾, 󰝟 if muted.
 - Middle click to mute.
 - Scroll to change." ;;
 	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
 esac
 vol="$(wpctl get-volume @DEFAULT_AUDIO_SINK@)"
-[ "$vol" != "${vol%\[MUTED\]}" ] && echo "󰝟" && exit
+[ "$vol" != "${vol%\[MUTED\]}" ] && echo "^c#FF0000^󰝟^d^" && exit
 vol="${vol#Volume: }"
 split() {
 	IFS=$2

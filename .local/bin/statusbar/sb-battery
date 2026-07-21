@@ -16,14 +16,14 @@ esac
 for battery in /sys/class/power_supply/BAT?*; do
 	[ -n "${capacity+x}" ] && printf " "
 	case "$(cat "$battery/status" 2>&1)" in
-		"Full")        status="󰂅" ;;
-		"Discharging") status="󰁹" ;;
-		"Charging")    status="󰂄" ;;
-		"Not charging") status="󰂑" ;;
-		"Unknown")     status="󰂊" ;;
+		"Full")        status="^c#00FF00^󰂅^d^" ;;
+		"Discharging") status="^c#e4d8d2^󰁹^d^" ;;
+		"Charging")    status="^c#FFD700^󰂄^d^" ;;
+		"Not charging") status="^c#9f9793^󰂑^d^" ;;
+		"Unknown")     status="^c#9f9793^󰂊^d^" ;;
 		*) exit 1 ;;
 	esac
 	capacity="$(cat "$battery/capacity" 2>&1)"
-	[ "$status" = "󰁹" ] && [ "$capacity" -le 25 ] && warn="󰂃"
+	[ "$status" = "^c#e4d8d2^󰁹^d^" ] && [ "$capacity" -le 25 ] && warn="^c#FF0000^󰂃^d^ "
 	printf "%s %s%d%%" "$status" "$warn" "$capacity"; unset warn
 done && printf "\\n"

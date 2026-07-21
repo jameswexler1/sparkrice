@@ -32,6 +32,7 @@ INCLUDES=(
     ".config/pulse/daemon.conf"
     ".config/python/pythonrc"
     ".config/shell"
+    ".config/btop"
     ".config/sxiv"
     ".config/user-dirs.dirs"
     ".config/wal/postrun"
