@@ -16,119 +16,187 @@ local get_files = ya.sync(function(state)
   return files
 end)
 
-local function log(msg)
-  local logfile = io.open("/tmp/copyto.log", "a")
-  if logfile then
-    logfile:write(os.date("%Y-%m-%d %H:%M:%S") .. " - " .. msg .. "\n")
-    logfile:close()
+local function display_path(path)
+  local home = os.getenv("HOME")
+  if home and path == home then
+    path = "~"
+  elseif home and path:sub(1, #home + 1) == home .. "/" then
+    path = "~/" .. path:sub(#home + 2)
+  end
+  return path:gsub("\r", "\\r"):gsub("\n", "\\n")
+end
+
+local function confirmation_body(files, dest)
+  local lines = {
+    string.format("%d item%s selected", #files, #files == 1 and "" or "s"),
+    "",
+    "From",
+  }
+
+  local shown = math.min(#files, 5)
+  for i = 1, shown do
+    lines[#lines + 1] = "  • " .. display_path(files[i])
+  end
+  if #files > shown then
+    lines[#lines + 1] = string.format("  … and %d more", #files - shown)
+  end
+
+  lines[#lines + 1] = ""
+  lines[#lines + 1] = "Destination"
+  lines[#lines + 1] = "  → " .. display_path(dest)
+  return table.concat(lines, "\n")
+end
+
+local function choose_destination()
+  if not os.getenv("HOME") then
+    return nil, "HOME is not set"
+  end
+
+  local fzf_cmd = table.concat({
+    -- Prune hidden directories instead of needlessly searching through them.
+    -- NUL separators also preserve directory names containing newlines.
+    "find \"$HOME\" -path '*/.*' -prune -o -type d -print0 | fzf",
+    "--read0",
+    "--print0",
+    "--height=85%",
+    "--layout=reverse",
+    "--border=rounded",
+    "--border-label=' Copy destination '",
+    "--info=inline",
+    "--prompt='  Copy to › '",
+    "--header='  Select a directory · Esc cancels'",
+    "--pointer='›'",
+  }, " ")
+
+  local permit = ui.hide()
+  local ok, dest = pcall(function()
+    local handle, open_err = io.popen(fzf_cmd)
+    if not handle then
+      error(open_err or "Could not start fzf")
+    end
+    local selected = handle:read("*a")
+    local closed, _, exit_code = handle:close()
+
+    if not selected or selected == "" then
+      -- fzf uses 1 when there is no match and 130 when the user presses Esc.
+      if closed or exit_code == 1 or exit_code == 130 then
+        return nil
+      end
+      error("Destination picker exited with error " .. tostring(exit_code))
+    elseif not closed then
+      error("Destination picker exited with error " .. tostring(exit_code))
+    end
+
+    selected = selected:gsub("%z$", "")
+    return selected
+  end)
+  permit:drop()
+
+  if not ok then
+    return nil, dest
+  end
+  return dest, nil
+end
+
+local function copy_one(src, dest)
+  local child, spawn_err = Command("cp")
+    :arg({ "--interactive", "--verbose", "--recursive", "--", src, dest })
+    :stdin(Command.INHERIT)
+    :stdout(Command.INHERIT)
+    :stderr(Command.INHERIT)
+    :spawn()
+
+  if not child then
+    return false, "cp could not start: " .. tostring(spawn_err)
+  end
+
+  local status, wait_err = child:wait()
+  if status and status.success then
+    return true
+  end
+
+  if status and status.code then
+    return false, "cp exited with code " .. tostring(status.code)
+  end
+  return false, "cp failed: " .. tostring(wait_err or "unknown error")
+end
+
+local function failure_summary(failures)
+  local lines = { string.format("%d item%s could not be copied:", #failures, #failures == 1 and "" or "s") }
+  local shown = math.min(#failures, 3)
+  for i = 1, shown do
+    lines[#lines + 1] = "• " .. display_path(failures[i].path) .. " — " .. failures[i].reason
+  end
+  if #failures > shown then
+    lines[#lines + 1] = string.format("… and %d more", #failures - shown)
+  end
+  return table.concat(lines, "\n")
+end
+
+local function desktop_notify(title, body)
+  local child = Command("notify-send")
+    :arg({ title, body })
+    :stdin(Command.NULL)
+    :stdout(Command.NULL)
+    :stderr(Command.NULL)
+    :spawn()
+  if child then
+    child:wait()
   end
 end
 
 return {
-  entry = function(self, job)
+  entry = function()
     local files = get_files()
     if #files == 0 then
       ya.notify({ title = "Copyto", content = "No files selected or hovered.", level = "warn", timeout = 3 })
       return
     end
 
-    log("Started plugin")
-
-    local permit = ui.hide()
-    log("Hid UI")
-
-    local ok, err = pcall(function()
-      local fzf_cmd = "find ~ -type d -not -path '*/\\.*' | fzf --prompt 'Copy to where? '"
-      local handle = io.popen(fzf_cmd)
-      local dest = handle:read("*l")
-      handle:close()
-      log("Ran fzf")
-
-      -- Always clear after fzf (cleanup on select or cancel)
-      os.execute("clear")
-
-      if not dest or dest == "" then
-        log("No dest selected")
-        return
-      end
-
-      dest = dest:gsub("^~", os.getenv("HOME") or "")
-      log("Dest: " .. dest)
-
-      -- Position cursor ~1/3 down
-      local tput_handle = io.popen("tput lines")
-      local lines_str = tput_handle:read("*a"):gsub("\n", "")
-      tput_handle:close()
-      local lines = tonumber(lines_str) or 24  -- fallback
-      local row = math.floor(lines / 3)
-      print("\027[" .. row .. ";1H")
-      print("\027[1m") -- Bold
-
-      log("Cleared and positioned screen")
-
-      print("From:")
-      for _, file in ipairs(files) do
-        print(" " .. file)
-      end
-
-      print("To:")
-      print(" " .. dest)
-      print("")
-
-      -- Prompt without trailing newline, cursor stays after
-      io.write("\tcopy?[y/N] ")
-      io.flush()
-
-      local ans = io.read("*l") or ""
-      print("\027[0m") -- Reset bold
-
-      log("Prompt answer: '" .. ans .. "'")
-
-      if ans ~= "y" then
-        os.execute("clear")
-        log("Canceled copy")
-        return
-      end
-
-      -- Perform copies
--- Perform copies
-local success = true
-for _, src in ipairs(files) do
-  local cp_cmd = string.format("cp -ivr %q %q", src, dest)
-  local status = os.execute(cp_cmd)
-  log("os.execute status for " .. src .. ": " .. tostring(status))
-  if status ~= 0 and status ~= true then
-    success = false
-    log("Copy failed for: " .. src)
-    -- Optional: break here if you want to stop on first error
-    -- break
-  end
-end
-
-      log("Copies done, success: " .. tostring(success))
-
-      os.execute("clear")
-      log("Cleared terminal after copy")
-
-      if success then
-        ya.notify({ title = "📋 File(s) copied.", content = "File(s) copied to " .. dest .. ".", level = "info", timeout = 5 })
-        local notify_cmd = string.format("notify-send '📋 File(s) copied.' 'File(s) copied to %s.'", dest)
-        os.execute(notify_cmd)
-        log("Sent success notify")
-      else
-        ya.notify({ title = "Copyto Error", content = "Failed to copy some files.", level = "error", timeout = 5 })
-        log("Sent error notify")
-      end
-    end)
-
-    permit:drop()
-    log("Dropped permit")
-
-    if not ok then
-      ya.notify({ title = "Copyto Runtime Error", content = tostring(err), level = "error", timeout = 5 })
-      log("Error: " .. tostring(err))
+    local dest, picker_err = choose_destination()
+    if picker_err then
+      ya.notify({ title = "Copy picker error", content = tostring(picker_err), level = "error", timeout = 5 })
+      return
+    elseif not dest or dest == "" then
+      return
     end
 
-    log("Ended plugin")
+    local confirmed = ya.confirm {
+      title = string.format(" 📋 Copy %d item%s? ", #files, #files == 1 and "" or "s"),
+      body = confirmation_body(files, dest),
+      pos = { "center", w = 78, h = math.min(20, 10 + math.min(#files, 5)) },
+    }
+    if not confirmed then
+      return
+    end
+
+    local permit = ui.hide()
+    local ok, failures = pcall(function()
+      local result = {}
+      for _, src in ipairs(files) do
+        local copied, reason = copy_one(src, dest)
+        if not copied then
+          result[#result + 1] = { path = src, reason = reason }
+        end
+      end
+      return result
+    end)
+    permit:drop()
+    ya.emit("refresh", {})
+
+    if not ok then
+      ya.notify({ title = "Copy runtime error", content = tostring(failures), level = "error", timeout = 7 })
+      return
+    elseif #failures == 0 then
+      ya.notify({
+        title = "📋 Copy complete",
+        content = string.format("%d item%s copied to %s", #files, #files == 1 and "" or "s", display_path(dest)),
+        level = "info",
+        timeout = 5,
+      })
+      desktop_notify("📋 File(s) copied.", "File(s) copied to " .. display_path(dest) .. ".")
+    else
+      ya.notify({ title = "Copy finished with errors", content = failure_summary(failures), level = "error", timeout = 8 })
+    end
   end,
 }

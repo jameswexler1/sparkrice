@@ -396,7 +396,7 @@ run = "plugin zip"
 desc = "Zip selected/hovered file(s)"
 [[mgr.prepend_keymap]]
 on = "E"
-run = "plugin extract"
+run = "plugin unpack"
 desc = "Extract selected/hovered file"
 [[mgr.prepend_keymap]]
 on = [ "g" , "l" ]
