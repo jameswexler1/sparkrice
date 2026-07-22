@@ -1,3 +1,9 @@
+-- Mount copyto's native destination popup over the file manager.
+require("copyto"):setup()
+
+-- Mount moveto's native destination popup over the file manager.
+require("moveto"):setup()
+
 -- Add mtime to the right side of the status bar
 Status:children_add(function()
     local h = cx.active.current.hovered

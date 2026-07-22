@@ -238,6 +238,10 @@ keymap = [
 	{ on = "<Esc>",   run = "escape",         desc = "Back to normal mode, or cancel input" },
 	{ on = "<C-[>",   run = "escape",         desc = "Back to normal mode, or cancel input" },
 
+	# Navigate the native copy/move destination results while preserving text-entry mode.
+	{ on = "<Up>",   run = [ "visual", "plugin copyto -- --move=-1", "plugin moveto -- --move=-1", "insert --append" ], desc = "Previous destination" },
+	{ on = "<Down>", run = [ "visual", "plugin copyto -- --move=1",  "plugin moveto -- --move=1",  "insert --append" ], desc = "Next destination" },
+
 	# Mode
 	{ on = "i", run = "insert",                          desc = "Enter insert mode" },
 	{ on = "I", run = [ "move first-char", "insert" ],   desc = "Move to the BOL, and enter insert mode" },
