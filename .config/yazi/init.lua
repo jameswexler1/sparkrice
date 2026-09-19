@@ -15,3 +15,6 @@ Status:children_add(function()
     end
     return ui.Line {}
 end, 500, Status.RIGHT)
+
+-- Show system applications in a popup inside Yazi.
+require("open-with"):setup()

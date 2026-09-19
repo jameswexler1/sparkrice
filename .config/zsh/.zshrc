@@ -87,7 +87,7 @@ zle -N zle-line-init
 echo -ne '\e[5 q' # Use beam shape cursor on startup.
 preexec() { echo -ne '\e[5 q' ;} # Use beam shape cursor for each new prompt.
 
-# Use lf to switch directories and bind it to ctrl-o
+# Use lf to switch directories.
 lfcd () {
     tmp="$(mktemp -uq)"
     trap 'rm -f $tmp >/dev/null 2>&1 && trap - HUP INT QUIT TERM PWR EXIT' HUP INT QUIT TERM PWR EXIT
@@ -95,6 +95,19 @@ lfcd () {
     if [ -f "$tmp" ]; then
         dir="$(cat "$tmp")"
         [ -d "$dir" ] && [ "$dir" != "$(pwd)" ] && cd "$dir"
+    fi
+}
+
+# Use Yazi to switch directories when quitting with q.
+yazicd() {
+    local tmp destination
+    tmp="$(mktemp -t yazi-cwd.XXXXXX)" || return
+    command yazi "$@" --cwd-file="$tmp"
+    IFS= read -r -d '' destination < "$tmp" || true
+    command rm -f -- "$tmp"
+
+    if [[ -d "$destination" && "$destination" != "$PWD" ]]; then
+        builtin cd -- "$destination"
     fi
 }
 
@@ -108,7 +121,7 @@ nv() {
   fi
 }
 
-bindkey -s '^o' '^ulfcd\n'
+bindkey -s '^o' '^uyazicd\n'
 
 bindkey -s '^a' '^ubc -lq\n'
 

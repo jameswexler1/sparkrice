@@ -31,6 +31,63 @@ local function display_path(path)
   return path:gsub("\r", "\\r"):gsub("\n", "\\n")
 end
 
+local function query_tokens(query)
+  local tokens = {}
+  for token in query:lower():gmatch("%S+") do
+    tokens[#tokens + 1] = token
+  end
+  return tokens
+end
+
+local function highlighted_path_spans(path, query)
+  local shown = display_path(path)
+  local tokens = query_tokens(query)
+  if shown == "" or #tokens == 0 then
+    return { ui.Span(shown) }
+  end
+
+  local lowered = shown:lower()
+  local marked = {}
+  for _, token in ipairs(tokens) do
+    local basename = lowered:match("([^/]+)$") or lowered
+    local basename_start = #lowered - #basename + 1
+    local exact = lowered:find(token, basename_start, true) or lowered:find(token, 1, true)
+
+    if exact then
+      for i = exact, exact + #token - 1 do
+        marked[i] = true
+      end
+    else
+      local previous = 0
+      for i = 1, #token do
+        local found = lowered:find(token:sub(i, i), previous + 1, true)
+        if not found then
+          break
+        end
+        marked[found] = true
+        previous = found
+      end
+    end
+  end
+
+  local spans = {}
+  local first = 1
+  local highlighted = marked[1] == true
+  for i = 2, #shown + 1 do
+    local next_highlighted = i <= #shown and marked[i] == true
+    if i > #shown or next_highlighted ~= highlighted then
+      local span = ui.Span(shown:sub(first, i - 1))
+      if highlighted then
+        span = span:style(th.mgr.find_keyword)
+      end
+      spans[#spans + 1] = span
+      first = i
+      highlighted = next_highlighted
+    end
+  end
+  return spans
+end
+
 local function popup_area(available)
   if available.w < 18 or available.h < 10 then
     return nil
@@ -62,6 +119,7 @@ local function setup(state)
   state.cursor = 0
   state.match_count = 0
   state.message = nil
+  state.query = ""
 
   local Popup = { _id = "moveto-popup" }
 
@@ -118,10 +176,11 @@ local function setup(state)
 
       for i = first, last do
         local active = i == cursor
-        lines[#lines + 1] = ui.Line {
-          ui.Span(active and "› " or "  "),
-          ui.Span(display_path(state.matches[i])),
-        }:style(active and th.pick.active or th.pick.inactive)
+        local spans = { ui.Span(active and "› " or "  ") }
+        for _, span in ipairs(highlighted_path_spans(state.matches[i], state.query)) do
+          spans[#spans + 1] = span
+        end
+        lines[#lines + 1] = ui.Line(spans):style(active and th.pick.active or th.pick.inactive)
       end
 
       footer = string.format(
@@ -153,15 +212,17 @@ local show_loading = ya.sync(function(state)
   state.cursor = 0
   state.match_count = 0
   state.message = "Looking for folders…"
+  state.query = ""
   ui.render()
 end)
 
-local show_matches = ya.sync(function(state, matches, match_count)
+local show_matches = ya.sync(function(state, matches, match_count, query)
   state.visible = true
   state.matches = matches
   state.cursor = #matches > 0 and 1 or 0
   state.match_count = match_count
   state.message = nil
+  state.query = query or ""
   ui.render()
 end)
 
@@ -171,6 +232,7 @@ local hide_popup = ya.sync(function(state)
   state.cursor = 0
   state.match_count = 0
   state.message = nil
+  state.query = ""
   ui.render()
 end)
 
@@ -280,10 +342,7 @@ local function token_score(text, token)
 end
 
 local function filter_directories(directories, query)
-  local tokens = {}
-  for token in query:lower():gmatch("%S+") do
-    tokens[#tokens + 1] = token
-  end
+  local tokens = query_tokens(query)
 
   if #tokens == 0 then
     local matches = {}
@@ -358,7 +417,7 @@ end
 local function choose_destination(directories)
   local query = ""
   local matches, match_count = filter_directories(directories, query)
-  show_matches(matches, match_count)
+  show_matches(matches, match_count, query)
 
   local input = ya.input {
     pos = { "center", y = -7, w = 72 },
@@ -375,12 +434,12 @@ local function choose_destination(directories)
     if event == 3 then
       query = value
       matches, match_count = filter_directories(directories, query)
-      show_matches(matches, match_count)
+      show_matches(matches, match_count, query)
     elseif event == 1 then
       -- Enter can arrive before the final debounced change event.
       if value ~= query then
         matches, match_count = filter_directories(directories, value)
-        show_matches(matches, match_count)
+        show_matches(matches, match_count, value)
       end
       local destination = selected_destination()
       hide_popup()

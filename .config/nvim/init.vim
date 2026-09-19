@@ -1,5 +1,9 @@
 let mapleader =","
 
+" Let nvim-tree handle directory buffers instead of netrw.
+let g:loaded_netrw = 1
+let g:loaded_netrwPlugin = 1
+
 if ! filereadable(system('echo -n "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/autoload/plug.vim"'))
     echo "Downloading junegunn/vim-plug to manage plugins..."
     silent !mkdir -p ${XDG_CONFIG_HOME:-$HOME/.config}/nvim/autoload/
@@ -9,16 +13,55 @@ endif
 
 call plug#begin(system('echo -n "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/plugged"'))
 Plug 'tpope/vim-surround'
-Plug 'preservim/nerdtree'
-Plug 'ryanoasis/vim-devicons'          " still needed for NERDTree icons
-Plug 'nvim-tree/nvim-web-devicons'     " ← new: modern icons for lualine
+Plug 'nvim-tree/nvim-web-devicons'
+Plug 'nvim-tree/nvim-tree.lua'
 Plug 'junegunn/goyo.vim'
-Plug 'jreybert/vimagit'
+Plug 'NeogitOrg/neogit'
 Plug 'vimwiki/vimwiki'
 Plug 'nvim-lualine/lualine.nvim'       " ← NEW: replaces vim-airline completely
 Plug 'tpope/vim-commentary'
 Plug 'ap/vim-css-color'
 call plug#end()
+
+" === File explorer ===
+lua << EOF
+require('nvim-tree').setup({
+  view = {
+    width = 32,
+  },
+  renderer = {
+    group_empty = true,
+  },
+})
+
+vim.keymap.set('n', '<leader>n', '<cmd>NvimTreeToggle<CR>', {
+  desc = 'Toggle file tree',
+})
+EOF
+
+" === Git interface ===
+lua << EOF
+require('neogit').setup({})
+
+vim.keymap.set('n', '<leader>gg', '<cmd>Neogit<CR>', {
+  desc = 'Open Neogit',
+})
+EOF
+
+" === Native Tree-sitter highlighting ===
+lua << EOF
+local treesitter_group = vim.api.nvim_create_augroup('native_treesitter', {
+  clear = true,
+})
+
+vim.api.nvim_create_autocmd('FileType', {
+  group = treesitter_group,
+  pattern = { 'markdown', 'c', 'lua', 'vim' },
+  callback = function(event)
+    vim.treesitter.start(event.buf)
+  end,
+})
+EOF
 
 " === Modern lualine statusbar (pywal + lines + orange + wordcount + NO git branch + ABSOLUTE path) ===
 lua << EOF
@@ -71,7 +114,7 @@ require('lualine').setup({
     theme = 'pywal',
     component_separators = { left = '', right = '' },
     section_separators = { left = '', right = '' },
-    disabled_filetypes = { 'NERDTree' },
+    disabled_filetypes = { 'NvimTree' },
     always_divide_middle = true,
     globalstatus = false,
   },
@@ -141,11 +184,6 @@ map <leader>f :Goyo \| set bg=light \| set linebreak<CR>
 map <leader>o :setlocal spell! spelllang=en_us<CR>
 " Splits open at the bottom and right, which is non-retarded, unlike vim defaults.
 set splitbelow splitright
-
-" Nerd tree
-map <leader>n :NERDTreeToggle<CR>
-autocmd bufenter * if (winnr("$") == 1 && exists("b:NERDTree") && b:NERDTree.isTabTree()) | q | endif
-let NERDTreeBookmarksFile = stdpath('data') . '/NERDTreeBookmarks'
 
 " Shortcutting split navigation, saving a keypress:
 map <C-h> <C-w>h

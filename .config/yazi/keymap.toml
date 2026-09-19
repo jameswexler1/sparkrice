@@ -422,3 +422,51 @@ desc = "Copy filepath(s)"
 on = [ "g", "r" ]
 run = "plugin sshfs-remote"
 desc = "Pick SSH remote"
+[[mgr.prepend_keymap]]
+on = "O"
+run = "plugin open-with"
+desc = "Choose an application for the hovered file"
+
+# Keep application-picker navigation in the modal input layer.
+[[confirm.prepend_keymap]]
+on = "<Up>"
+run = "mgr:plugin open-with -- up"
+[[confirm.prepend_keymap]]
+on = "k"
+run = "mgr:plugin open-with -- up"
+[[confirm.prepend_keymap]]
+on = "<Down>"
+run = "mgr:plugin open-with -- down"
+[[confirm.prepend_keymap]]
+on = "j"
+run = "mgr:plugin open-with -- down"
+[[confirm.prepend_keymap]]
+on = "<Home>"
+run = "mgr:plugin open-with -- top"
+[[confirm.prepend_keymap]]
+on = "g"
+run = "mgr:plugin open-with -- top"
+[[confirm.prepend_keymap]]
+on = "<End>"
+run = "mgr:plugin open-with -- bottom"
+[[confirm.prepend_keymap]]
+on = "G"
+run = "mgr:plugin open-with -- bottom"
+[[confirm.prepend_keymap]]
+on = "<PageUp>"
+run = "mgr:plugin open-with -- page-up"
+[[confirm.prepend_keymap]]
+on = "<C-u>"
+run = "mgr:plugin open-with -- page-up"
+[[confirm.prepend_keymap]]
+on = "<PageDown>"
+run = "mgr:plugin open-with -- page-down"
+[[confirm.prepend_keymap]]
+on = "<C-d>"
+run = "mgr:plugin open-with -- page-down"
+[[confirm.prepend_keymap]]
+on = "q"
+run = "mgr:plugin open-with -- cancel"
+[[confirm.prepend_keymap]]
+on = "y"
+run = "mgr:plugin open-with -- yes"

@@ -72,3 +72,7 @@ export BIB="$HOME/.local/share/biblatex/uni.bib"
 
 # Switch escape and caps if tty and no passwd required:
 sudo -n loadkeys "$XDG_DATA_HOME/larbs/ttymaps.kmap" 2>/dev/null
+
+
+# Added by Antigravity CLI installer
+export PATH="/home/gustavo/.local/bin:$PATH"

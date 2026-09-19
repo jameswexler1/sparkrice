@@ -89,6 +89,7 @@ EXCLUDES=(
     ".local/bin/filen"
     ".local/bin/claude"
     ".local/bin/radian"
+    ".local/bin/agy"
     ".local/bin/curl-cffi"
     ".local/share/keyrings"
     ".config/shell/shortcutrc"

@@ -1,64 +1,91 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
-INSTANCES_DIR="$HOME/.instances/codex"
-BIN_DIR="$HOME/.instances/codex/bin"
-SHARED_SESSIONS="$INSTANCES_DIR/sessions"
+# Account launchers use a private HOME. Resolve the real user's home so this
+# manager works both inside and outside a running account instance.
+ACCOUNT_USER_HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
+INSTANCES_DIR="${CODEX_ACCOUNTS_DIR:-$ACCOUNT_USER_HOME/.instances/codex}"
+BIN_DIR="$INSTANCES_DIR/bin"
 
 usage() {
   echo "Usage:"
-  echo "  codex-account new <name>   Create a new account instance"
-  echo "  codex-account rename       Rename an existing instance (fuzzy picker)"
-  exit 1
+  echo "  codex-account new <name>       Create an account using shared conversations"
+  echo "  codex-account rename [old new] Rename an account (fuzzy picker if omitted)"
+  echo "  codex-account sync             Import updates from older running instances"
+}
+
+validate_name() {
+  [[ "$1" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$ ]] || {
+    echo "Error: use letters, digits, underscores, dots or hyphens in account names" >&2
+    exit 1
+  }
+  case "$1" in
+    bin|lib|sessions|archived_sessions|shared-state|backups|thread-writer-locks)
+      echo "Error: reserved account name: $1" >&2; exit 1 ;;
+  esac
+}
+
+sync_history() {
+  python3 "$INSTANCES_DIR/lib/shared_history.py" --root "$INSTANCES_DIR" "$@"
 }
 
 case "${1:-}" in
   new)
     name="${2:-}"
-    [[ -z "$name" ]] && { echo "Error: provide a name"; usage; }
+    [[ -n "$name" ]] || { usage; exit 1; }
+    validate_name "$name"
     base="$INSTANCES_DIR/$name"
     wrapper="$BIN_DIR/codex-$name"
-    [[ -e "$wrapper" ]] && { echo "Error: codex-$name already exists"; exit 1; }
-
-    mkdir -p "$base" "$BIN_DIR" "$SHARED_SESSIONS"
-
-    # Symlink shared sessions into this instance's fake HOME/.codex
-    mkdir -p "$base/.codex"
-    ln -s "$SHARED_SESSIONS" "$base/.codex/sessions"
-
-    cat > "$wrapper" <<SCRIPT
-#!/usr/bin/env bash
-set -euo pipefail
-export HOME="$base"
-mkdir -p "\$HOME"
-exec codex "\$@"
-SCRIPT
-    chmod +x "$wrapper"
-    echo "Created: codex-$name  →  $base"
+    [[ ! -e "$base" && ! -L "$base" && ! -e "$wrapper" && ! -L "$wrapper" ]] || {
+      echo "Error: '$name' already exists" >&2; exit 1;
+    }
+    mkdir -p "$BIN_DIR" "$INSTANCES_DIR/sessions" "$INSTANCES_DIR/archived_sessions" \
+      "$INSTANCES_DIR/shared-state/thread-writer-locks" "$base/.codex"
+    ln -s "$INSTANCES_DIR/sessions" "$base/.codex/sessions"
+    ln -s "$INSTANCES_DIR/archived_sessions" "$base/.codex/archived_sessions"
+    ln -s "$INSTANCES_DIR/shared-state/thread-writer-locks" "$base/.codex/thread-writer-locks"
+    cp "$INSTANCES_DIR/lib/account-wrapper" "$wrapper"
+    chmod 755 "$wrapper"
+    echo "Created: codex-$name → $base (shared conversations)"
     ;;
 
   rename)
-    [[ ! -d "$INSTANCES_DIR" ]] && { echo "No instances directory found"; exit 1; }
-    selected=$(ls "$INSTANCES_DIR" | grep -v '^bin$' | grep -v '^sessions$' | fzf --prompt="Select instance to rename: ")
-    [[ -z "$selected" ]] && { echo "No selection made"; exit 0; }
-    printf "New name for '%s': " "$selected"
-    read -r newname
-    [[ -z "$newname" ]] && { echo "Error: name cannot be empty"; exit 1; }
-
+    [[ -d "$INSTANCES_DIR" ]] || { echo "No instances directory found"; exit 1; }
+    if [[ -n "${2:-}" ]]; then
+      selected="$2"
+      newname="${3:-}"
+    else
+      if ! selected=$(for base in "$INSTANCES_DIR"/*; do
+        if [[ -d "$base/.codex" && ! -L "$base" ]]; then
+          printf '%s\n' "${base##*/}"
+        fi
+      done | fzf --prompt="Select instance to rename: "); then
+        exit 0
+      fi
+      printf "New name for '%s': " "$selected"
+      read -r newname
+    fi
+    validate_name "$selected"
+    validate_name "$newname"
     old_base="$INSTANCES_DIR/$selected"
     new_base="$INSTANCES_DIR/$newname"
     old_wrapper="$BIN_DIR/codex-$selected"
     new_wrapper="$BIN_DIR/codex-$newname"
-
-    [[ -e "$new_base" ]] && { echo "Error: '$newname' already exists"; exit 1; }
-
+    [[ -d "$old_base/.codex" && -f "$old_wrapper" ]] || { echo "Error: account not found" >&2; exit 1; }
+    [[ ! -e "$new_base" && ! -L "$new_base" && ! -e "$new_wrapper" && ! -L "$new_wrapper" ]] || {
+      echo "Error: '$newname' already exists" >&2; exit 1;
+    }
+    sync_history
     mv "$old_base" "$new_base"
-    mv "$old_wrapper" "$new_wrapper"
-    sed -i "s|export HOME=.*|export HOME=\"$new_base\"|" "$new_wrapper"
-    echo "Renamed: codex-$selected  →  codex-$newname"
+    if ! mv "$old_wrapper" "$new_wrapper"; then
+      mv "$new_base" "$old_base"
+      exit 1
+    fi
+    echo "Renamed: codex-$selected → codex-$newname"
     ;;
 
-  *)
-    usage
-    ;;
+  sync) sync_history --verbose ;;
+  -h|--help) usage ;;
+  *) usage; exit 1 ;;
 esac
