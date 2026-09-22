@@ -5,6 +5,7 @@ function! InsertImage()
     return
   endif
   let l:tmpfile = tempname()
+  let l:origin = {'winid': win_getid(), 'bufnr': bufnr('%'), 'pos': getpos('.')}
   botright 15new
   call termopen(
     \ "find " . shellescape(l:downloads) .
@@ -12,12 +13,14 @@ function! InsertImage()
     \ " \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg'" .
     \ " -o -iname '*.gif' -o -iname '*.svg' -o -iname '*.webp' \\)" .
     \ " | fzf --prompt='Select image: ' > " . l:tmpfile,
-    \ {'on_exit': function('s:ImageSelected', [l:tmpfile])})
+    \ {'on_exit': function('s:ImageSelected', [l:tmpfile, bufnr('%'), l:origin])})
   startinsert
 endfunction
 
-function! s:ImageSelected(tmpfile, job_id, code, event)
-  bdelete!
+function! s:ImageSelected(tmpfile, picker_bufnr, origin, job_id, code, event)
+  if bufloaded(a:picker_bufnr)
+    execute 'bdelete! ' . a:picker_bufnr
+  endif
   if a:code != 0 || !filereadable(a:tmpfile)
     echom "No image selected"
     return
@@ -28,10 +31,19 @@ function! s:ImageSelected(tmpfile, job_id, code, event)
     echom "No image selected"
     return
   endif
-  call timer_start(50, function('s:ImagePrompt', [l:selected]))
+  call timer_start(50, function('s:ImagePrompt', [l:selected, a:origin]))
 endfunction
 
-function! s:ImagePrompt(selected, timer)
+function! s:ImagePrompt(selected, origin, timer)
+  let l:windows = getwininfo(a:origin.winid)
+  if empty(l:windows) || l:windows[0].bufnr != a:origin.bufnr
+    echom "Original document is no longer in its window; image not inserted"
+    return
+  endif
+  if !win_gotoid(a:origin.winid)
+    return
+  endif
+  call setpos('.', a:origin.pos)
   let l:mode = input("Insert as (m)arkdown or (l)aTeX centered figure [default l]: ")
   if empty(l:mode) | let l:mode = 'l' | endif
   if l:mode =~? 'm'

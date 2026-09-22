@@ -46,18 +46,21 @@ function! InsertCitation()
     return
   endif
 
+  let l:origin = {'winid': win_getid(), 'bufnr': bufnr('%'), 'pos': getpos('.')}
   botright 15new
   call termopen(
     \ 'cat ' . shellescape(l:listfile) .
     \ ' | column -t -s "	"' .
     \ ' | fzf --prompt="Select reference: "' .
     \ ' > ' . shellescape(l:tmpfile),
-    \ {'on_exit': function('s:CitationSelected', [l:tmpfile, l:listfile])})
+    \ {'on_exit': function('s:CitationSelected', [l:tmpfile, l:listfile, bufnr('%'), l:origin])})
   startinsert
 endfunction
 
-function! s:CitationSelected(tmpfile, listfile, job_id, code, event)
-  bdelete!
+function! s:CitationSelected(tmpfile, listfile, picker_bufnr, origin, job_id, code, event)
+  if bufloaded(a:picker_bufnr)
+    execute 'bdelete! ' . a:picker_bufnr
+  endif
   call delete(a:listfile)
   if a:code != 0 || !filereadable(a:tmpfile)
     echom "No reference selected"
@@ -71,10 +74,19 @@ function! s:CitationSelected(tmpfile, listfile, job_id, code, event)
   endif
   " First whitespace-delimited token is the citekey
   let l:citekey = trim(split(trim(l:lines[0]))[0])
-  call timer_start(50, function('s:InsertCitekey', [l:citekey]))
+  call timer_start(50, function('s:InsertCitekey', [l:citekey, a:origin]))
 endfunction
 
-function! s:InsertCitekey(citekey, timer)
+function! s:InsertCitekey(citekey, origin, timer)
+  let l:windows = getwininfo(a:origin.winid)
+  if empty(l:windows) || l:windows[0].bufnr != a:origin.bufnr
+    echom "Original document is no longer in its window; citation not inserted"
+    return
+  endif
+  if !win_gotoid(a:origin.winid)
+    return
+  endif
+  call setpos('.', a:origin.pos)
   let l:citation = '[@' . a:citekey . ']'
   execute "normal! a" . l:citation
   echom "Inserted: " . l:citation

@@ -21,6 +21,7 @@ Plug 'vimwiki/vimwiki'
 Plug 'nvim-lualine/lualine.nvim'       " ← NEW: replaces vim-airline completely
 Plug 'tpope/vim-commentary'
 Plug 'ap/vim-css-color'
+Plug 'MeanderingProgrammer/render-markdown.nvim'
 call plug#end()
 
 " === File explorer ===
@@ -48,17 +49,32 @@ vim.keymap.set('n', '<leader>gg', '<cmd>Neogit<CR>', {
 })
 EOF
 
-" === Native Tree-sitter highlighting ===
+" === Tree-sitter and Markdown rendering ===
 lua << EOF
+local diary_dir = vim.fn.expand('~/.local/share/nvim/vimwiki/diary') .. '/'
+
+local function is_diary(buf)
+  return vim.startswith(vim.api.nvim_buf_get_name(buf), diary_dir)
+end
+
+vim.treesitter.language.register('markdown', 'vimwiki')
+
+require('render-markdown').setup({
+  file_types = { 'markdown', 'vimwiki' },
+  ignore = is_diary,
+})
+
 local treesitter_group = vim.api.nvim_create_augroup('native_treesitter', {
   clear = true,
 })
 
 vim.api.nvim_create_autocmd('FileType', {
   group = treesitter_group,
-  pattern = { 'markdown', 'c', 'lua', 'vim' },
+  pattern = { 'markdown', 'vimwiki', 'c', 'lua', 'vim' },
   callback = function(event)
-    vim.treesitter.start(event.buf)
+    if not is_diary(event.buf) then
+      vim.treesitter.start(event.buf)
+    end
   end,
 })
 EOF
@@ -510,7 +526,7 @@ endfunction
 nnoremap <leader>tm :call InsertMarkdownTable()<CR>
 
 " Sets automatically VimWiki Diary entry updates in the Diary index
-let g:vimwiki_diary_auto_index = 1
+let g:vimwiki_auto_diary_index = 1
 
 " Open People Index
 nnoremap <leader>wp :edit ~/.local/share/nvim/people/index.md<CR>
@@ -572,3 +588,5 @@ augroup END
 " Trying to make UNDO permanent across sessions
 set undofile
 set undodir^=$HOME/.local/state/nvim/undo//
+
+nnoremap <leader>mr <cmd>RenderMarkdown buf_toggle<CR>
